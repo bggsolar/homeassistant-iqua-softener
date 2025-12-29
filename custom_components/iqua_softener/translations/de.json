@@ -26,6 +26,9 @@
       "daily_average_rock_removed_kg": { "name": "Stein entfernt Ø pro Tag" },
       "since_regen_rock_removed_kg": { "name": "Stein entfernt seit Regeneration" },
 
+      "controller_time": { "name": "Controller-Uhrzeit" },
+      "regen_time_remaining": { "name": "Restzeit Regeneration" },
+
       "time_in_operation_days": { "name": "Betriebsdauer" },
       "total_regens": { "name": "Regenerationen gesamt" },
       "manual_regens": { "name": "Manuelle Regenerationen" },
@@ -35,19 +38,16 @@
 
       "total_power_outages": { "name": "Stromausfälle gesamt" },
       "total_times_power_lost": { "name": "Strom weg (Anzahl)" },
-      "days_since_last_time_loss": { "name": "Tage seit letztem Stromausfall" },
+      "days_since_last_time_loss": { "name": "Tage seit letztem Ausfall" },
       "longest_recorded_outage": { "name": "Längster Stromausfall" },
 
       "functional_water_meter_sensor": { "name": "Funktionscheck: Wasserzähler-Sensor" },
       "functional_computer_board": { "name": "Funktionscheck: Steuerplatine" },
-      "functional_cord_power_supply": { "name": "Funktionscheck: Netzteil" },
+      "functional_cord_power_supply": { "name": "Funktionscheck: Netzteil/Netzkabel" },
 
-      "misc_second_output": { "name": "2. Ausgang" },
+      "misc_second_output": { "name": "Zweiter Ausgang" },
       "misc_regeneration_enabled": { "name": "Regeneration aktiviert" },
-      "misc_lockout_status": { "name": "Sperrstatus" },
-      "controller_time": { "name": "Controller-Uhrzeit" },
-      "regen_time_remaining": { "name": "Regeneration: Restzeit" },
-      "time_since_last_recharge_days": { "name": "Tage seit letzter Regeneration" }
+      "misc_lockout_status": { "name": "Sperrstatus" }
     }
   }
 }
