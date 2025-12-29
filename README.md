@@ -20,6 +20,26 @@ The units displayed are set in the application settings.
 ## Installation
 Copy the `custom_components/iqua_softener` folder into the config folder.
 
+## Setup / Configuration
+
+This integration requires:
+
+- iQua account email + password
+- **Device UUID** (not the serial number)
+
+### Where to find the Device UUID
+
+Open the web app:
+
+1. Login at https://app.myiquaapp.com
+2. Open **My devices**
+3. Select your device
+4. Copy the UUID from the URL, e.g.
+
+`https://app.myiquaapp.com/devices/<DEVICE_UUID>`
+
+Use `<DEVICE_UUID>` in the Home Assistant config flow.
+
 ## Configuration
 To add an iQua water softener to Home assistant, go to Settings and click "+ ADD INTEGRATION" button. From list select "iQua Softener" and click it, in displayed window you must enter:
 - Username - username for iQua application
