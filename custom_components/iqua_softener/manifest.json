@@ -1,15 +1,15 @@
 {
   "domain": "iqua_softener",
   "name": "iQua Softener",
-  "documentation": "https://github.com/bggsolar/homeassistant-iqua-softener/",
+  "documentation": "https://github.com/bggsolar/homeassistant-iqua-softener",
   "issue_tracker": "https://github.com/bggsolar/homeassistant-iqua-softener/issues",
   "dependencies": [],
   "codeowners": ["@bggsolar"],
   "requirements": [
-    "git+https://github.com/bggsolar/iqua-softener.git@fbd333a"
+    "git+https://github.com/bggsolar/iqua-softener.git@fb007e5#egg=iqua_softener"
   ],
   "config_flow": true,
   "iot_class": "cloud_polling",
   "loggers": ["iqua"],
-  "version": "1.0.3"
+  "version": "2.0.1"
 }
