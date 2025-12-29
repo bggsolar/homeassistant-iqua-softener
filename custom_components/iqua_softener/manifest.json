@@ -6,10 +6,10 @@
   "dependencies": [],
   "codeowners": ["@bggsolar"],
   "requirements": [
-    "iqua-softener @ git+https://github.com/bggsolar/iqua-softener.git@fb007e5"
+    "iqua-softener @ git+https://github.com/bggsolar/iqua-softener.git@f17b732"
   ],
   "config_flow": true,
   "iot_class": "cloud_polling",
   "loggers": ["iqua"],
-  "version": "2.0.2"
+  "version": "2.1.0"
 }
