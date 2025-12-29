@@ -454,6 +454,7 @@ async def async_setup_entry(
                 native_unit_of_measurement="d",  # ✅ days
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-clock",
+                suggested_display_precision=0,
             ),
             kv_key="out_of_salt_days",
             round_digits=0,
