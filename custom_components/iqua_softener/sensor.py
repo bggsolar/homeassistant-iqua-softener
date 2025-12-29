@@ -102,7 +102,12 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
         sw = _as_str(kv.get("manufacturing_information.base_software_version"))
         pwa = _as_str(kv.get("manufacturing_information.pwa"))
 
-        name = f"iQua {model} ({sw})" if sw else f"iQua {model}"
+        # Device name for HA (used in default entity_id prefix):
+        # Use PWA (stable) instead of firmware (changes)
+        if pwa:
+            name = f"iQua {model} ({pwa})"
+        else:
+            name = f"iQua {model}"
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_uuid)},  # internal stable ID
