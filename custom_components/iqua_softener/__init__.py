@@ -1,6 +1,5 @@
 import logging
 
-from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant import config_entries, core
 from homeassistant.exceptions import ConfigEntryNotReady
 
@@ -23,15 +22,10 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     hass.data.setdefault(DOMAIN, {})
 
     hass_data = dict(entry.data)
-
-    # merge options (if any)
     if entry.options:
         hass_data.update(entry.options)
 
-    if "device_serial_number" in hass_data and CONF_DEVICE_UUID not in hass_data:
-        hass_data[CONF_DEVICE_UUID] = hass_data["device_serial_number"]
-
-    devide_uuid = hass_data[CONF_DEVICE_UUID]
+    device_uuid = hass_data[CONF_DEVICE_UUID]
 
     coordinator = IquaSoftenerCoordinator(
         hass,
@@ -42,13 +36,10 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         ),
     )
 
-    # IMPORTANT: do first refresh here (before forwarding 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except (ConfigEntryNotReady, UpdateFailed) as err:
-        # UpdateFailed during first refresh usually means:
-        # backend down, auth/token issue, temporary cloud problem
-        raise ConfigEntryNotReady from err
+    except ConfigEntryNotReady:
+        raise
     except Exception as err:
         _LOGGER.warning("iQua Softener not ready yet: %s", err)
         raise ConfigEntryNotReady from err
