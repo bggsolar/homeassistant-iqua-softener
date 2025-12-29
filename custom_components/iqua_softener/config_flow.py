@@ -1,49 +1,50 @@
 from __future__ import annotations
 
-import re
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, CONF_USERNAME, CONF_PASSWORD, CONF_DEVICE_UUID
-
-UUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-"
-    r"[0-9a-fA-F]{4}-"
-    r"[0-9a-fA-F]{4}-"
-    r"[0-9a-fA-F]{4}-"
-    r"[0-9a-fA-F]{12}$"
+from .const import (
+    DOMAIN,
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    CONF_DEVICE_UUID,
 )
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class IquaSoftenerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None) -> FlowResult:
-        errors = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            uuid = user_input[CONF_DEVICE_UUID].strip()
+            device_uuid = (user_input.get(CONF_DEVICE_UUID) or "").strip()
 
-            if not UUID_RE.match(uuid):
-                errors[CONF_DEVICE_UUID] = "invalid_uuid"
-            else:
-                return self.async_create_entry(
-                    title=f"iQua {uuid}",
-                    data={
-                        CONF_USERNAME: user_input[CONF_USERNAME].strip(),
-                        CONF_PASSWORD: user_input[CONF_PASSWORD],
-                        CONF_DEVICE_UUID: uuid,
-                    },
-                )
+            # prevent duplicate entries for same device uuid
+            await self.async_set_unique_id(device_uuid.lower())
+            self._abort_if_unique_id_configured()
+
+            return self.async_create_entry(
+                title=f"iQua {device_uuid}",
+                data={
+                    CONF_EMAIL: user_input[CONF_EMAIL].strip(),
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                    CONF_DEVICE_UUID: device_uuid,
+                },
+            )
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_USERNAME): str,   # email
+                vol.Required(CONF_EMAIL): str,
                 vol.Required(CONF_PASSWORD): str,
-                vol.Required(CONF_DEVICE_UUID): str,  # UUID from /devices/<UUID>
+                vol.Required(CONF_DEVICE_UUID): str,
             }
         )
 
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+        )
