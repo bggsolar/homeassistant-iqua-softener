@@ -47,7 +47,7 @@
       "misc_lockout_status": { "name": "Lockout status" },
       "controller_time": { "name": "Controller time" },
       "regen_time_remaining": { "name": "Regen time remaining" },
-      "time_since_last_recharge_days": { "name": "Days since last regeneration" },
+      "time_since_last_recharge_days": { "name": "Days since last regeneration" }
     }
   }
 }
