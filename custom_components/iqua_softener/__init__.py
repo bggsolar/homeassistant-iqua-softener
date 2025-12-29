@@ -28,7 +28,7 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     if entry.options:
         hass_data.update(entry.options)
 
-    if "device_serial_number" in hass_data and CONF_DEVICE_UUID not in hass_date:
+    if "device_serial_number" in hass_data and CONF_DEVICE_UUID not in hass_data:
         hass_date[CONF_DEVICE_UUID] = hass_data["device_serial_number"]
 
     devide_uuid = hass_data[CONF_DEVICE_UUID]
