@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
     SensorEntityDescription,
 )
-from homeassistant.const import PERCENTAGE, UnitOfVolume, UnitOfMass
+from homeassistant.const import PERCENTAGE, UnitOfVolume, UnitOfMass, UnitOfTime
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -76,10 +76,7 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
         pwa_str = str(pwa) if pwa else None
 
         # Device name
-        if sw_version_str:
-            name = f"iQua {model} ({sw_version_str})"
-        else:
-            name = f"iQua {model}"
+        name = f"iQua {model} ({sw_version_str})" if sw_version_str else f"iQua {model}"
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_uuid)},  # UUID bleibt intern!
@@ -102,7 +99,7 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
 
 
 class IquaKVSensor(IquaBaseSensor):
-    """Simple kv sensor: reads a key from data['kv'] and sets native_value (float if possible)."""
+    """Reads a key from data['kv'] and sets native_value (float if possible)."""
 
     def __init__(
         self,
@@ -131,18 +128,14 @@ class IquaKVSensor(IquaBaseSensor):
             return
 
         f = _kv_float(kv, self._kv_key)
-
-        # Prefer numeric value if possible
         val: Any = f if f is not None else raw
 
-        # Apply transform (e.g. scale conversion)
         if self._value_transform is not None:
             try:
                 val = self._value_transform(val)
             except Exception:
                 pass
 
-        # Rounding for numeric values
         if isinstance(val, (int, float)) and self._round_digits is not None:
             val = _round(float(val), self._round_digits)
 
@@ -151,7 +144,7 @@ class IquaKVSensor(IquaBaseSensor):
 
 class IquaUsagePatternSensor(IquaBaseSensor):
     """
-    Represents a weekly table row (Sun..Sat) as:
+    Weekly table row (Sun..Sat):
       - state: weekly average (float)
       - attributes: Sun..Sat values (floats)
     """
@@ -233,11 +226,7 @@ def _salt_monitor_to_percent(val: Any) -> Optional[float]:
         f = float(val)
     except Exception:
         return None
-    # clamp
-    if f < 0:
-        f = 0
-    if f > 50:
-        f = 50
+    f = max(0.0, min(50.0, f))
     return (f / 50.0) * 100.0
 
 
@@ -390,13 +379,13 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="iqua_daily_water_usage_avg_pattern",
                 translation_key="daily_water_usage_avg_pattern",
-                native_unit_of_measurement=UnitOfVolume.LITERS,  # ✅ liters
+                native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-week",
             ),
             table_key="daily_water_usage_patterns",
             row_label="Average Usage (Liters)",
-            round_digits=1,  # ✅ 1 decimal is enough
+            round_digits=1,
         ),
         IquaUsagePatternSensor(
             coordinator,
@@ -404,7 +393,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="iqua_daily_water_usage_reserved_pattern",
                 translation_key="daily_water_usage_reserved_pattern",
-                native_unit_of_measurement=UnitOfVolume.LITERS,  # ✅ liters
+                native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-week",
             ),
@@ -444,11 +433,12 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="iqua_salt_monitor_level_percent",
                 translation_key="salt_monitor_level_percent",
-                native_unit_of_measurement=PERCENTAGE,  # ✅ now real percent
+                native_unit_of_measurement=PERCENTAGE,
                 state_class=SensorStateClass.MEASUREMENT,
+                suggested_display_precision=0,
             ),
             kv_key="salt_monitor_level",
-            value_transform=_salt_monitor_to_percent,  # ✅ 0..50 -> 0..100%
+            value_transform=_salt_monitor_to_percent,
             round_digits=0,
         ),
         IquaKVSensor(
@@ -457,7 +447,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="iqua_out_of_salt_days",
                 translation_key="out_of_salt_days",
-                native_unit_of_measurement="d",  # ✅ days
+                native_unit_of_measurement=UnitOfTime.DAYS,  # ✅ HA-konform
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-clock",
                 suggested_display_precision=0,
