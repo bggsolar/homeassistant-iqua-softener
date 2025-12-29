@@ -49,13 +49,13 @@ async def async_setup_entry(
         for clz, entity_description in (
             (
                 IquaSoftenerStateSensor,
-                SensorEntityDescription(key="STATE", name="State"),
+                SensorEntityDescription(key="STATE", name="iQua State"),
             ),
             (
                 IquaSoftenerDeviceDateTimeSensor,
                 SensorEntityDescription(
                     key="DATE_TIME",
-                    name="Date/time",
+                    name="iQua Date/time",
                     icon="mdi:clock",
                 ),
             ),
@@ -63,7 +63,7 @@ async def async_setup_entry(
                 IquaSoftenerLastRegenerationSensor,
                 SensorEntityDescription(
                     key="LAST_REGENERATION",
-                    name="Letzte Regeneration",
+                    name="iQua Letzte Regeneration",
                     device_class=SensorDeviceClass.TIMESTAMP,
                 ),
             ),
@@ -71,7 +71,7 @@ async def async_setup_entry(
                 IquaSoftenerOutOfSaltEstimatedDaySensor,
                 SensorEntityDescription(
                     key="OUT_OF_SALT_ESTIMATED_DAY",
-                    name="Salzvorrat aufgebraucht (geschätzt)",
+                    name="iQua Salzvorrat aufgebraucht (geschätzt)",
                     device_class=SensorDeviceClass.TIMESTAMP,
                 ),
             ),
@@ -79,7 +79,7 @@ async def async_setup_entry(
                 IquaSoftenerSaltLevelSensor,
                 SensorEntityDescription(
                     key="SALT_LEVEL",
-                    name="Salzvorrat",
+                    name="iQua Salzvorrat",
                     state_class=SensorStateClass.MEASUREMENT,
                     native_unit_of_measurement=PERCENTAGE,
                 ),
@@ -88,7 +88,7 @@ async def async_setup_entry(
                 IquaSoftenerAvailableWaterSensor,
                 SensorEntityDescription(
                     key="AVAILABLE_WATER",
-                    name="Restkapazität Wasser",
+                    name="iQua Restkapazität Wasser",
                     state_class=SensorStateClass.TOTAL,
                     device_class=SensorDeviceClass.WATER,
                     icon="mdi:water",
@@ -98,7 +98,7 @@ async def async_setup_entry(
                 IquaSoftenerWaterCurrentFlowSensor,
                 SensorEntityDescription(
                     key="WATER_CURRENT_FLOW",
-                    name="Aktuelle Durchflussrate",
+                    name="iQua Aktuelle Durchflussrate",
                     state_class=SensorStateClass.MEASUREMENT,
                     icon="mdi:water-pump",
                 ),
@@ -107,7 +107,7 @@ async def async_setup_entry(
                 IquaSoftenerWaterUsageTodaySensor,
                 SensorEntityDescription(
                     key="WATER_USAGE_TODAY",
-                    name="Wasserverbrauch heute",
+                    name="iQua Wasserverbrauch heute",
                     state_class=SensorStateClass.TOTAL_INCREASING,
                     device_class=SensorDeviceClass.WATER,
                     icon="mdi:water-minus",
@@ -117,7 +117,7 @@ async def async_setup_entry(
                 IquaSoftenerWaterUsageDailyAverageSensor,
                 SensorEntityDescription(
                     key="WATER_USAGE_DAILY_AVERAGE",
-                    name="Mittlerer täglicher Wasserverbrauch",
+                    name="iQua Mittlerer täglicher Wasserverbrauch",
                     state_class=SensorStateClass.MEASUREMENT,
                     device_class=SensorDeviceClass.WATER,
                 ),
