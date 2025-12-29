@@ -5,7 +5,12 @@ import logging
 from homeassistant import config_entries, core
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN, CONF_EMAIL, CONF_PASSWORD, CONF_DEVICE_UUID
+from .const import (
+    DOMAIN,
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    CONF_DEVICE_UUID,
+)
 from .coordinator import IquaSoftenerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,17 +25,20 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     if entry.options:
         hass_data.update(entry.options)
 
+    # Required config
+    email = hass_data[CONF_EMAIL]
+    password = hass_data[CONF_PASSWORD]
+    device_uuid = hass_data[CONF_DEVICE_UUID]
+
     coordinator = IquaSoftenerCoordinator(
         hass,
-        email=hass_data[CONF_EMAIL],
-        password=hass_data[CONF_PASSWORD],
-        device_uuid=hass_data[CONF_DEVICE_UUID],
+        email=email,
+        password=password,
+        device_uuid=device_uuid,
     )
 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryNotReady:
-        raise
     except Exception as err:
         _LOGGER.warning("iQua Softener not ready yet: %s", err)
         raise ConfigEntryNotReady from err
@@ -53,6 +61,6 @@ async def async_unload_entry(hass: core.HomeAssistant, entry: config_entries.Con
     hass.data[DOMAIN][entry.entry_id]["unsub_options_update_listener"]()
 
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN].pop(entry.entry_id, None)
 
     return unload_ok
