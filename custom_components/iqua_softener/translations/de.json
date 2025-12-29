@@ -1,4 +1,17 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "iQua Softener",
+        "description": "Bitte gib deine iQua-Zugangsdaten und die Geräte-UUID ein.",
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort",
+          "device_uuid": "Geräte-UUID"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "capacity_remaining_percent": { "name": "Restkapazität" },
@@ -42,24 +55,9 @@
       "computer_board_status": { "name": "Steuerplatine Status" },
       "cord_power_supply_status": { "name": "Netzteil Status" },
 
-      "second_output": { "name": "2. Ausgang" },
+      "second_output": { "name": "Zweiter Ausgang" },
       "regeneration_enabled": { "name": "Regeneration aktiviert" },
       "lockout_status": { "name": "Sperrstatus" }
-    }
-  }
-}
-{
-  "config": {
-    "step": {
-      "user": {
-        "title": "iQua Softener",
-        "description": "Bitte gib deine iQua-Zugangsdaten und die Geräte-UUID ein.",
-        "data": {
-          "email": "E-Mail",
-          "password": "Passwort",
-          "device_uuid": "Geräte-UUID"
-        }
-      }
     }
   }
 }
