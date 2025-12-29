@@ -24,7 +24,27 @@
 
       "total_rock_removed_kg": { "name": "Stein entfernt gesamt" },
       "daily_average_rock_removed_kg": { "name": "Stein entfernt Ø pro Tag" },
-      "since_regen_rock_removed_kg": { "name": "Stein entfernt seit Regeneration" }
+      "since_regen_rock_removed_kg": { "name": "Stein entfernt seit Regeneration" },
+
+      "time_in_operation_days": { "name": "Betriebszeit (Tage)" },
+      "total_regens": { "name": "Regenerationen gesamt" },
+      "manual_regens": { "name": "Manuelle Regenerationen" },
+      "second_backwash_cycles": { "name": "2. Rückspülzyklen" },
+      "time_since_last_recharge_days": { "name": "Tage seit letzter Regeneration" },
+      "average_days_between_recharge": { "name": "Ø Tage zwischen Regenerationen" },
+
+      "total_power_outages": { "name": "Stromausfälle gesamt" },
+      "total_times_power_lost": { "name": "Strom weg (Anzahl)" },
+      "days_since_last_time_loss": { "name": "Tage seit letztem Stromausfall" },
+      "longest_recorded_outage": { "name": "Längster Stromausfall" },
+
+      "water_meter_sensor_status": { "name": "Wasserzähler-Sensor Status" },
+      "computer_board_status": { "name": "Steuerplatine Status" },
+      "cord_power_supply_status": { "name": "Netzteil Status" },
+
+      "second_output": { "name": "2. Ausgang" },
+      "regeneration_enabled": { "name": "Regeneration aktiviert" },
+      "lockout_status": { "name": "Sperrstatus" }
     }
   }
 }
