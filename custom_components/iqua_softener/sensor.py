@@ -578,7 +578,7 @@ async def async_setup_entry(
                 key="manual_regens",
                 translation_key="manual_regens",
                 state_class=SensorStateClass.TOTAL_INCREASING,
-                icon="mdi:hand",
+                icon="mdi:waves-arrow-right",
                 suggested_display_precision=0,
             ),
             "regenerations.manual_regens",
