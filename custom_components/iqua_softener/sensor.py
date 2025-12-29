@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.const import PERCENTAGE, UnitOfVolume, UnitOfMass
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -20,10 +21,7 @@ from .const import (
     CONF_DEVICE_UUID,
     VOLUME_FLOW_RATE_LITERS_PER_MINUTE,
 )
-
 from .coordinator import IquaSoftenerCoordinator
-
-from homeassistant.helpers.entity import DeviceInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +46,37 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = entity_description
+        self._device_uuid = device_uuid
         self._attr_unique_id = f"{device_uuid}_{entity_description.key}".lower()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        # coordinator.data = {"kv": {...}, "tables": {...}}
+        kv: Dict[str, Any] = {}
+        data = getattr(self.coordinator, "data", None)
+        if isinstance(data, dict):
+            kv_candidate = data.get("kv", {})
+            if isinstance(kv_candidate, dict):
+                kv = kv_candidate
+
+        model = str(kv.get("model") or "Softener")
+        sw_version = kv.get("base_software_version")
+        sw_version_str = str(sw_version) if sw_version else None
+
+        if sw_version_str:
+            name = f"iQua {model} ({sw_version_str})"
+        else:
+            name = f"iQua {model}"
+
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._device_uuid)},
+            name=name,
+            manufacturer="iQua / EcoWater",
+            model=model,
+            sw_version=sw_version_str,
+            serial_number=self._device_uuid,  # UUID sichtbar in Geräteinfos
+            configuration_url=f"https://app.myiquaapp.com/devices/{self._device_uuid}",
+        )
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -126,7 +154,14 @@ class IquaUsagePatternSensor(IquaBaseSensor):
             self._attr_extra_state_attributes = {}
             return
 
-        row = next((r for r in rows if isinstance(r, dict) and r.get("label") == self._row_label), None)
+        row = next(
+            (
+                r
+                for r in rows
+                if isinstance(r, dict) and r.get("label") == self._row_label
+            ),
+            None,
+        )
         if not row:
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
@@ -188,7 +223,6 @@ async def async_setup_entry(
             ),
             kv_key="average_capacity_remaining_at_regen",
         ),
-
         # ---------- Water usage ----------
         IquaKVSensor(
             coordinator,
@@ -286,7 +320,6 @@ async def async_setup_entry(
             ),
             kv_key="peak_flow",
         ),
-
         # ---------- Water usage history (table) ----------
         IquaUsagePatternSensor(
             coordinator,
@@ -310,7 +343,6 @@ async def async_setup_entry(
             table_key="daily_water_usage_patterns",
             row_label="Reserved (Liters)",
         ),
-
         # ---------- Salt usage ----------
         IquaKVSensor(
             coordinator,
@@ -367,7 +399,6 @@ async def async_setup_entry(
             ),
             kv_key="average_salt_dose_per_recharge",
         ),
-
         # ---------- Rock removed ----------
         IquaKVSensor(
             coordinator,
