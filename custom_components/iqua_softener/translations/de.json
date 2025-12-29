@@ -1,0 +1,30 @@
+{
+  "entity": {
+    "sensor": {
+      "capacity_remaining_percent": { "name": "Restkapazität" },
+      "average_capacity_remaining_at_regen_percent": { "name": "Ø Restkapazität bei Regeneration" },
+
+      "treated_water_total": { "name": "Aufbereitetes Wasser gesamt" },
+      "untreated_water_total": { "name": "Unbehandeltes Wasser gesamt" },
+      "water_today": { "name": "Wasser heute" },
+      "average_daily_use": { "name": "Durchschnitt pro Tag" },
+      "water_totalizer": { "name": "Wasserzähler gesamt" },
+      "treated_water_available": { "name": "Aufbereitetes Wasser verfügbar" },
+      "current_flow": { "name": "Aktueller Durchfluss" },
+      "peak_flow": { "name": "Spitzendurchfluss" },
+
+      "daily_water_usage_avg_pattern": { "name": "Wasserverbrauch-Muster (Ø)" },
+      "daily_water_usage_reserved_pattern": { "name": "Wasserverbrauch-Muster (Reserve)" },
+
+      "salt_total_kg": { "name": "Salz gesamt" },
+      "total_salt_efficiency_ppm_per_kg": { "name": "Salzeffizienz" },
+      "salt_monitor_level_percent": { "name": "Salzfüllstand" },
+      "out_of_salt_days": { "name": "Tage bis Salz leer" },
+      "average_salt_dose_per_recharge_kg": { "name": "Ø Salz pro Regeneration" },
+
+      "total_rock_removed_kg": { "name": "Stein entfernt gesamt" },
+      "daily_average_rock_removed_kg": { "name": "Stein entfernt Ø pro Tag" },
+      "since_regen_rock_removed_kg": { "name": "Stein entfernt seit Regeneration" }
+    }
+  }
+}
