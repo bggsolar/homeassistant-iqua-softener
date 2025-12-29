@@ -47,7 +47,7 @@
       "misc_lockout_status": { "name": "Sperrstatus" },
       "controller_time": { "name": "Controller-Uhrzeit" },
       "regen_time_remaining": { "name": "Regeneration: Restzeit" },
-      "time_since_last_recharge_days": { "name": "Tage seit letzter Regeneration" },
+      "time_since_last_recharge_days": { "name": "Tage seit letzter Regeneration" }
     }
   }
 }
