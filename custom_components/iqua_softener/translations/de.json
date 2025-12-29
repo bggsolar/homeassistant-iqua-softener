@@ -44,9 +44,10 @@
 
       "misc_second_output": { "name": "2. Ausgang" },
       "misc_regeneration_enabled": { "name": "Regeneration aktiviert" },
-      "misc_lockout_status": { "name": "Sperrstatus" }
+      "misc_lockout_status": { "name": "Sperrstatus" },
       "controller_time": { "name": "Controller-Uhrzeit" },
-      "regen_time_remaining": { "name": "Regeneration: Restzeit" }
+      "regen_time_remaining": { "name": "Regeneration: Restzeit" },
+      "time_since_last_recharge_days": { "name": "Tage seit letzter Regeneration" },
     }
   }
 }
