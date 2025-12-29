@@ -742,6 +742,27 @@ async def async_setup_entry(
             ),
             "miscellaneous.lockout_status",
         ),
+                # ---------- Program settings ----------
+        IquaKVSensor(
+            coordinator,
+            device_uuid,
+            SensorEntityDescription(
+                key="iqua_controller_time",
+                translation_key="controller_time",
+                icon="mdi:clock-outline",
+            ),
+            kv_key="program.controller_time",
+        ),
+        IquaKVSensor(
+            coordinator,
+            device_uuid,
+            SensorEntityDescription(
+                key="iqua_regen_time_remaining",
+                translation_key="regen_time_remaining",
+                icon="mdi:timer-outline",
+            ),
+            kv_key="program.regen_time_remaining",
+        ),
     ]
 
     async_add_entities(sensors)
