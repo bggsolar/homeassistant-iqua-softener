@@ -45,6 +45,8 @@
       "misc_second_output": { "name": "Second output" },
       "misc_regeneration_enabled": { "name": "Regeneration enabled" },
       "misc_lockout_status": { "name": "Lockout status" }
+      "controller_time": { "name": "Controller time" },
+      "regen_time_remaining": { "name": "Regen time remaining" }
     }
   }
 }
