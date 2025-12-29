@@ -48,3 +48,18 @@
     }
   }
 }
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "iQua Softener",
+        "description": "Bitte gib deine iQua-Zugangsdaten und die Geräte-UUID ein.",
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort",
+          "device_uuid": "Geräte-UUID"
+        }
+      }
+    }
+  }
+}
