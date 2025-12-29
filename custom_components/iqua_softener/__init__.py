@@ -1,5 +1,6 @@
 import logging
 
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant import config_entries, core
 from homeassistant.exceptions import ConfigEntryNotReady
 
@@ -38,11 +39,13 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         ),
     )
 
-    # IMPORTANT: do first refresh here (before forwarding platforms)
+    # IMPORTANT: do first refresh here (before forwarding 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryNotReady:
-        raise
+    except (ConfigEntryNotReady, UpdateFailed) as err:
+        # UpdateFailed during first refresh usually means:
+        # backend down, auth/token issue, temporary cloud problem
+        raise ConfigEntryNotReady from err
     except Exception as err:
         _LOGGER.warning("iQua Softener not ready yet: %s", err)
         raise ConfigEntryNotReady from err
