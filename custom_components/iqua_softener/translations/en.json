@@ -1,63 +1,50 @@
 {
-  "config": {
-    "step": {
-      "user": {
-        "title": "iQua Softener",
-        "description": "Enter your iQua credentials and the device UUID.",
-        "data": {
-          "email": "Email",
-          "password": "Password",
-          "device_uuid": "Device UUID"
-        }
-      }
-    }
-  },
   "entity": {
     "sensor": {
       "capacity_remaining_percent": { "name": "Capacity remaining" },
-      "average_capacity_remaining_at_regen_percent": { "name": "Avg. capacity remaining at regeneration" },
+      "average_capacity_remaining_at_regen_percent": { "name": "Avg. remaining capacity at regeneration" },
 
-      "treated_water_total": { "name": "Treated water total" },
-      "untreated_water_total": { "name": "Untreated water total" },
-      "water_today": { "name": "Water today" },
-      "average_daily_use": { "name": "Average per day" },
-      "water_totalizer": { "name": "Water totalizer" },
-      "treated_water_available": { "name": "Treated water available" },
-      "current_flow": { "name": "Current flow" },
-      "peak_flow": { "name": "Peak flow" },
+      "treated_water_total_l": { "name": "Treated water (total)" },
+      "untreated_water_total_l": { "name": "Untreated water (total)" },
+      "water_today_l": { "name": "Water today" },
+      "average_daily_use_l": { "name": "Average daily use" },
+      "water_totalizer_l": { "name": "Water totalizer" },
+      "treated_water_available_l": { "name": "Treated water available" },
+      "current_flow_lpm": { "name": "Current flow" },
+      "peak_flow_lpm": { "name": "Peak flow" },
 
-      "daily_water_usage_avg_pattern": { "name": "Daily water usage pattern (avg)" },
-      "daily_water_usage_reserved_pattern": { "name": "Daily water usage pattern (reserved)" },
+      "daily_water_usage_avg_pattern_l": { "name": "Weekly water pattern (average)" },
+      "daily_water_usage_reserved_pattern_l": { "name": "Weekly water pattern (reserved)" },
 
-      "salt_total_kg": { "name": "Total salt" },
+      "salt_total_kg": { "name": "Salt total" },
       "total_salt_efficiency_ppm_per_kg": { "name": "Salt efficiency" },
-      "salt_monitor_level_percent": { "name": "Salt level" },
+      "salt_monitor_percent": { "name": "Salt level" },
       "out_of_salt_days": { "name": "Days until out of salt" },
-      "average_salt_dose_per_recharge_kg": { "name": "Avg. salt dose per recharge" },
+      "average_salt_dose_per_recharge_kg": { "name": "Avg. salt per regeneration" },
 
-      "total_rock_removed_kg": { "name": "Total rock removed" },
-      "daily_average_rock_removed_kg": { "name": "Daily avg. rock removed" },
+      "total_rock_removed_kg": { "name": "Rock removed total" },
+      "daily_average_rock_removed_kg": { "name": "Rock removed (daily avg)" },
       "since_regen_rock_removed_kg": { "name": "Rock removed since regeneration" },
 
-      "time_in_operation_days": { "name": "Time in operation (days)" },
+      "time_in_operation_days": { "name": "Time in operation" },
       "total_regens": { "name": "Total regenerations" },
       "manual_regens": { "name": "Manual regenerations" },
       "second_backwash_cycles": { "name": "Second backwash cycles" },
       "time_since_last_recharge_days": { "name": "Days since last recharge" },
-      "average_days_between_recharge": { "name": "Avg. days between recharges" },
+      "average_days_between_recharge_days": { "name": "Avg. days between recharges" },
 
       "total_power_outages": { "name": "Total power outages" },
-      "total_times_power_lost": { "name": "Total times power lost" },
-      "days_since_last_time_loss": { "name": "Days since last time loss" },
+      "total_times_power_lost": { "name": "Times power lost" },
+      "days_since_last_time_loss": { "name": "Days since last power loss" },
       "longest_recorded_outage": { "name": "Longest recorded outage" },
 
-      "water_meter_sensor_status": { "name": "Water meter sensor status" },
-      "computer_board_status": { "name": "Computer board status" },
-      "cord_power_supply_status": { "name": "Power supply status" },
+      "functional_water_meter_sensor": { "name": "Functional check: water meter sensor" },
+      "functional_computer_board": { "name": "Functional check: computer board" },
+      "functional_cord_power_supply": { "name": "Functional check: cord power supply" },
 
-      "second_output": { "name": "Second output" },
-      "regeneration_enabled": { "name": "Regeneration enabled" },
-      "lockout_status": { "name": "Lockout status" }
+      "misc_second_output": { "name": "Second output" },
+      "misc_regeneration_enabled": { "name": "Regeneration enabled" },
+      "misc_lockout_status": { "name": "Lockout status" }
     }
   }
 }
