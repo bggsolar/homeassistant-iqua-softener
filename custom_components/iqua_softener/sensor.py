@@ -27,7 +27,6 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _kv_float(kv: Dict[str, Any], key: str) -> Optional[float]:
-    """Parse numeric values coming as strings like '76.5%' or '3.6 Days'."""
     v = kv.get(key)
     if v is None:
         return None
@@ -48,6 +47,24 @@ def _round(v: Optional[float], ndigits: int) -> Optional[float]:
         return None
 
 
+def _salt_monitor_to_percent(val: Any) -> Optional[float]:
+    """Salt monitor seems to be 0..50 where 50 means 100%."""
+    try:
+        f = float(val)
+    except Exception:
+        return None
+    f = max(0.0, min(50.0, f))
+    return (f / 50.0) * 100.0
+
+
+def _get_kv(data: Any) -> Dict[str, Any]:
+    if isinstance(data, dict):
+        kv = data.get("kv", {})
+        if isinstance(kv, dict):
+            return kv
+    return {}
+
+
 class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
     def __init__(
         self,
@@ -60,13 +77,12 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
         self._device_uuid = device_uuid
         self._attr_unique_id = f"{device_uuid}_{entity_description.key}".lower()
 
+        # IMPORTANT: lets HA display "Device name" + "Entity name"
+        self._attr_has_entity_name = True
+
     @property
     def device_info(self) -> DeviceInfo:
-        data = self.coordinator.data or {}
-
-        kv: Dict[str, Any] = {}
-        if isinstance(data, dict):
-            kv = data.get("kv", {}) or {}
+        kv = _get_kv(self.coordinator.data)
 
         model = str(kv.get("model") or "Softener")
         sw_version = kv.get("base_software_version")
@@ -75,22 +91,25 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
         sw_version_str = str(sw_version) if sw_version else None
         pwa_str = str(pwa) if pwa else None
 
-        # Device name
         name = f"iQua {model} ({sw_version_str})" if sw_version_str else f"iQua {model}"
 
         return DeviceInfo(
-            identifiers={(DOMAIN, self._device_uuid)},  # UUID bleibt intern!
+            identifiers={(DOMAIN, self._device_uuid)},
             name=name,
             manufacturer="iQua / EcoWater",
             model=model,
             sw_version=sw_version_str,
-            serial_number=pwa_str,  # ✅ PWA statt UUID
+            serial_number=pwa_str,  # PWA sichtbar in Geräteinfos
             configuration_url=f"https://app.myiquaapp.com/devices/{self._device_uuid}",
         )
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        self.update_from_data(self.coordinator.data)
+        try:
+            self.update_from_data(self.coordinator.data)
+        except Exception:
+            _LOGGER.exception("Failed to update sensor %s", self.entity_id)
+            self._attr_native_value = None
         self.async_write_ha_state()
 
     @abstractmethod
@@ -99,8 +118,6 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
 
 
 class IquaKVSensor(IquaBaseSensor):
-    """Reads a key from data['kv'] and sets native_value (float if possible)."""
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -117,12 +134,9 @@ class IquaKVSensor(IquaBaseSensor):
         self._value_transform = value_transform
 
     def update_from_data(self, data: Dict[str, Any]) -> None:
-        kv = data.get("kv", {})
-        if not isinstance(kv, dict):
-            self._attr_native_value = None
-            return
-
+        kv = _get_kv(data)
         raw = kv.get(self._kv_key)
+
         if raw is None:
             self._attr_native_value = None
             return
@@ -131,10 +145,7 @@ class IquaKVSensor(IquaBaseSensor):
         val: Any = f if f is not None else raw
 
         if self._value_transform is not None:
-            try:
-                val = self._value_transform(val)
-            except Exception:
-                pass
+            val = self._value_transform(val)
 
         if isinstance(val, (int, float)) and self._round_digits is not None:
             val = _round(float(val), self._round_digits)
@@ -143,12 +154,6 @@ class IquaKVSensor(IquaBaseSensor):
 
 
 class IquaUsagePatternSensor(IquaBaseSensor):
-    """
-    Weekly table row (Sun..Sat):
-      - state: weekly average (float)
-      - attributes: Sun..Sat values (floats)
-    """
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -165,7 +170,7 @@ class IquaUsagePatternSensor(IquaBaseSensor):
         self._round_digits = round_digits
 
     def update_from_data(self, data: Dict[str, Any]) -> None:
-        tables = data.get("tables", {})
+        tables = data.get("tables", {}) if isinstance(data, dict) else {}
         if not isinstance(tables, dict):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
@@ -184,10 +189,7 @@ class IquaUsagePatternSensor(IquaBaseSensor):
             self._attr_extra_state_attributes = {}
             return
 
-        row = next(
-            (r for r in rows if isinstance(r, dict) and r.get("label") == self._row_label),
-            None,
-        )
+        row = next((r for r in rows if isinstance(r, dict) and r.get("label") == self._row_label), None)
         if not row:
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
@@ -217,19 +219,6 @@ class IquaUsagePatternSensor(IquaBaseSensor):
         self._attr_native_value = round(sum(nums) / len(nums), self._round_digits) if nums else None
 
 
-def _salt_monitor_to_percent(val: Any) -> Optional[float]:
-    """
-    Salt monitor seems to be 0..50 where 50 means 100%.
-    Convert to percent (0..100).
-    """
-    try:
-        f = float(val)
-    except Exception:
-        return None
-    f = max(0.0, min(50.0, f))
-    return (f / 50.0) * 100.0
-
-
 async def async_setup_entry(
     hass: core.HomeAssistant,
     config_entry: config_entries.ConfigEntry,
@@ -240,13 +229,13 @@ async def async_setup_entry(
     coordinator: IquaSoftenerCoordinator = config["coordinator"]
 
     sensors: list[IquaBaseSensor] = [
-        # ---------- Capacity ----------
+        # Capacity
         IquaKVSensor(
             coordinator,
             device_uuid,
             SensorEntityDescription(
                 key="iqua_capacity_remaining_percent",
-                translation_key="capacity_remaining_percent",
+                name="Capacity remaining",
                 native_unit_of_measurement=PERCENTAGE,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
@@ -258,7 +247,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_average_capacity_remaining_at_regen_percent",
-                translation_key="average_capacity_remaining_at_regen_percent",
+                name="Avg capacity remaining at regen",
                 native_unit_of_measurement=PERCENTAGE,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
@@ -266,13 +255,13 @@ async def async_setup_entry(
             round_digits=1,
         ),
 
-        # ---------- Water usage ----------
+        # Water usage
         IquaKVSensor(
             coordinator,
             device_uuid,
             SensorEntityDescription(
                 key="iqua_treated_water_liters",
-                translation_key="treated_water_total",
+                name="Treated water total",
                 device_class=SensorDeviceClass.WATER,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.TOTAL_INCREASING,
@@ -285,7 +274,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_untreated_water_liters",
-                translation_key="untreated_water_total",
+                name="Untreated water total",
                 device_class=SensorDeviceClass.WATER,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.TOTAL_INCREASING,
@@ -298,7 +287,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_water_today_liters",
-                translation_key="water_today",
+                name="Water today",
                 device_class=SensorDeviceClass.WATER,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.TOTAL_INCREASING,
@@ -311,7 +300,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_average_daily_use_liters",
-                translation_key="average_daily_use",
+                name="Average daily use",
                 device_class=SensorDeviceClass.WATER,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
@@ -324,7 +313,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_water_totalizer_liters",
-                translation_key="water_totalizer",
+                name="Water totalizer",
                 device_class=SensorDeviceClass.WATER,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.TOTAL_INCREASING,
@@ -337,7 +326,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_treated_water_available_liters",
-                translation_key="treated_water_available",
+                name="Treated water available",
                 device_class=SensorDeviceClass.WATER,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
@@ -350,7 +339,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_current_flow_lpm",
-                translation_key="current_flow",
+                name="Current flow",
                 native_unit_of_measurement=VOLUME_FLOW_RATE_LITERS_PER_MINUTE,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:water-pump",
@@ -363,7 +352,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_peak_flow_lpm",
-                translation_key="peak_flow",
+                name="Peak flow",
                 native_unit_of_measurement=VOLUME_FLOW_RATE_LITERS_PER_MINUTE,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:chart-line",
@@ -372,13 +361,13 @@ async def async_setup_entry(
             round_digits=1,
         ),
 
-        # ---------- Water usage history (table) ----------
+        # Water usage history (table)
         IquaUsagePatternSensor(
             coordinator,
             device_uuid,
             SensorEntityDescription(
                 key="iqua_daily_water_usage_avg_pattern",
-                translation_key="daily_water_usage_avg_pattern",
+                name="Daily water usage pattern (avg)",
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-week",
@@ -392,7 +381,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_daily_water_usage_reserved_pattern",
-                translation_key="daily_water_usage_reserved_pattern",
+                name="Daily water usage pattern (reserved)",
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-week",
@@ -402,13 +391,13 @@ async def async_setup_entry(
             round_digits=1,
         ),
 
-        # ---------- Salt usage ----------
+        # Salt usage
         IquaKVSensor(
             coordinator,
             device_uuid,
             SensorEntityDescription(
                 key="iqua_salt_total_kg",
-                translation_key="salt_total_kg",
+                name="Salt total",
                 native_unit_of_measurement=UnitOfMass.KILOGRAMS,
                 state_class=SensorStateClass.TOTAL_INCREASING,
             ),
@@ -420,7 +409,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_total_salt_efficiency_ppm_per_kg",
-                translation_key="total_salt_efficiency_ppm_per_kg",
+                name="Total salt efficiency",
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:chart-bell-curve",
             ),
@@ -432,7 +421,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_salt_monitor_level_percent",
-                translation_key="salt_monitor_level_percent",
+                name="Salt monitor level",
                 native_unit_of_measurement=PERCENTAGE,
                 state_class=SensorStateClass.MEASUREMENT,
                 suggested_display_precision=0,
@@ -446,8 +435,8 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_out_of_salt_days",
-                translation_key="out_of_salt_days",
-                native_unit_of_measurement=UnitOfTime.DAYS,  # ✅ HA-konform
+                name="Out of salt (days)",
+                native_unit_of_measurement=UnitOfTime.DAYS,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-clock",
                 suggested_display_precision=0,
@@ -460,7 +449,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_average_salt_dose_per_recharge_kg",
-                translation_key="average_salt_dose_per_recharge_kg",
+                name="Avg salt dose per recharge",
                 native_unit_of_measurement=UnitOfMass.KILOGRAMS,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
@@ -468,13 +457,13 @@ async def async_setup_entry(
             round_digits=3,
         ),
 
-        # ---------- Rock removed ----------
+        # Rock removed
         IquaKVSensor(
             coordinator,
             device_uuid,
             SensorEntityDescription(
                 key="iqua_total_rock_removed_kg",
-                translation_key="total_rock_removed_kg",
+                name="Total rock removed",
                 native_unit_of_measurement=UnitOfMass.KILOGRAMS,
                 state_class=SensorStateClass.TOTAL_INCREASING,
             ),
@@ -486,7 +475,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_daily_average_rock_removed_kg",
-                translation_key="daily_average_rock_removed_kg",
+                name="Daily avg rock removed",
                 native_unit_of_measurement=UnitOfMass.KILOGRAMS,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
@@ -498,7 +487,7 @@ async def async_setup_entry(
             device_uuid,
             SensorEntityDescription(
                 key="iqua_since_regen_rock_removed_kg",
-                translation_key="since_regen_rock_removed_kg",
+                name="Rock removed since regen",
                 native_unit_of_measurement=UnitOfMass.KILOGRAMS,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
