@@ -1,30 +1,50 @@
 {
   "entity": {
     "sensor": {
-      "capacity_remaining_percent": { "name": "Capacity Remaining" },
-      "average_capacity_remaining_at_regen_percent": { "name": "Avg Capacity Remaining at Regen" },
+      "capacity_remaining_percent": { "name": "Capacity remaining" },
+      "average_capacity_remaining_at_regen_percent": { "name": "Avg. capacity remaining at regeneration" },
 
-      "treated_water_total": { "name": "Treated Water Total" },
-      "untreated_water_total": { "name": "Untreated Water Total" },
-      "water_today": { "name": "Water Today" },
-      "average_daily_use": { "name": "Average Daily Use" },
-      "water_totalizer": { "name": "Water Totalizer" },
-      "treated_water_available": { "name": "Treated Water Available" },
-      "current_flow": { "name": "Current Flow" },
-      "peak_flow": { "name": "Peak Flow" },
+      "treated_water_total": { "name": "Treated water total" },
+      "untreated_water_total": { "name": "Untreated water total" },
+      "water_today": { "name": "Water today" },
+      "average_daily_use": { "name": "Average per day" },
+      "water_totalizer": { "name": "Water totalizer" },
+      "treated_water_available": { "name": "Treated water available" },
+      "current_flow": { "name": "Current flow" },
+      "peak_flow": { "name": "Peak flow" },
 
-      "daily_water_usage_avg_pattern": { "name": "Daily Water Usage Pattern (Avg)" },
-      "daily_water_usage_reserved_pattern": { "name": "Daily Water Usage Pattern (Reserved)" },
+      "daily_water_usage_avg_pattern": { "name": "Daily water usage pattern (avg)" },
+      "daily_water_usage_reserved_pattern": { "name": "Daily water usage pattern (reserved)" },
 
-      "salt_total_kg": { "name": "Salt Total" },
-      "total_salt_efficiency_ppm_per_kg": { "name": "Salt Efficiency" },
-      "salt_monitor_level_percent": { "name": "Salt Level" },
-      "out_of_salt_days": { "name": "Days Until Salt Empty" },
-      "average_salt_dose_per_recharge_kg": { "name": "Avg Salt per Recharge" },
+      "salt_total_kg": { "name": "Total salt" },
+      "total_salt_efficiency_ppm_per_kg": { "name": "Salt efficiency" },
+      "salt_monitor_level_percent": { "name": "Salt level" },
+      "out_of_salt_days": { "name": "Days until out of salt" },
+      "average_salt_dose_per_recharge_kg": { "name": "Avg. salt dose per recharge" },
 
-      "total_rock_removed_kg": { "name": "Total Rock Removed" },
-      "daily_average_rock_removed_kg": { "name": "Daily Avg Rock Removed" },
-      "since_regen_rock_removed_kg": { "name": "Rock Removed Since Regen" }
+      "total_rock_removed_kg": { "name": "Total rock removed" },
+      "daily_average_rock_removed_kg": { "name": "Daily avg. rock removed" },
+      "since_regen_rock_removed_kg": { "name": "Rock removed since regeneration" },
+
+      "time_in_operation_days": { "name": "Time in operation (days)" },
+      "total_regens": { "name": "Total regenerations" },
+      "manual_regens": { "name": "Manual regenerations" },
+      "second_backwash_cycles": { "name": "Second backwash cycles" },
+      "time_since_last_recharge_days": { "name": "Days since last recharge" },
+      "average_days_between_recharge": { "name": "Avg. days between recharges" },
+
+      "total_power_outages": { "name": "Total power outages" },
+      "total_times_power_lost": { "name": "Total times power lost" },
+      "days_since_last_time_loss": { "name": "Days since last time loss" },
+      "longest_recorded_outage": { "name": "Longest recorded outage" },
+
+      "water_meter_sensor_status": { "name": "Water meter sensor status" },
+      "computer_board_status": { "name": "Computer board status" },
+      "cord_power_supply_status": { "name": "Power supply status" },
+
+      "second_output": { "name": "Second output" },
+      "regeneration_enabled": { "name": "Regeneration enabled" },
+      "lockout_status": { "name": "Lockout status" }
     }
   }
 }
