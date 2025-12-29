@@ -763,6 +763,21 @@ async def async_setup_entry(
             ),
             kv_key="program.regen_time_remaining",
         ),
+                # ---------- Regenerations ----------
+        IquaKVSensor(
+            coordinator,
+            device_uuid,
+            SensorEntityDescription(
+                key="iqua_time_since_last_recharge_days",
+                translation_key="time_since_last_recharge_days",
+                native_unit_of_measurement="d",
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:calendar-clock",
+                suggested_display_precision=0,
+            ),
+            kv_key="regenerations.time_since_last_recharge_days",
+            round_digits=0,
+        ),
     ]
 
     async_add_entities(sensors)
