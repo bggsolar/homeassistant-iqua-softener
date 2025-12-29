@@ -62,26 +62,32 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity, ABC):
 
     @property
     def device_info(self) -> DeviceInfo:
+        data = self.coordinator.data or {}
+
         kv: Dict[str, Any] = {}
-        data = getattr(self.coordinator, "data", None)
         if isinstance(data, dict):
-            kv_candidate = data.get("kv", {})
-            if isinstance(kv_candidate, dict):
-                kv = kv_candidate
+            kv = data.get("kv", {}) or {}
 
         model = str(kv.get("model") or "Softener")
         sw_version = kv.get("base_software_version")
-        sw_version_str = str(sw_version) if sw_version else None
+        pwa = kv.get("pwa")
 
-        name = f"iQua {model} ({sw_version_str})" if sw_version_str else f"iQua {model}"
+        sw_version_str = str(sw_version) if sw_version else None
+        pwa_str = str(pwa) if pwa else None
+
+        # Device name
+        if sw_version_str:
+            name = f"iQua {model} ({sw_version_str})"
+        else:
+            name = f"iQua {model}"
 
         return DeviceInfo(
-            identifiers={(DOMAIN, self._device_uuid)},
+            identifiers={(DOMAIN, self._device_uuid)},  # UUID bleibt intern!
             name=name,
             manufacturer="iQua / EcoWater",
             model=model,
             sw_version=sw_version_str,
-            serial_number=self._device_uuid,  # UUID in device infos
+            serial_number=pwa_str,  # ✅ PWA statt UUID
             configuration_url=f"https://app.myiquaapp.com/devices/{self._device_uuid}",
         )
 
