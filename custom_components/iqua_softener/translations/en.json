@@ -1,4 +1,17 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "iQua Softener",
+        "description": "Enter your iQua credentials and the device UUID.",
+        "data": {
+          "email": "Email",
+          "password": "Password",
+          "device_uuid": "Device UUID"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "capacity_remaining_percent": { "name": "Capacity remaining" },
@@ -45,21 +58,6 @@
       "second_output": { "name": "Second output" },
       "regeneration_enabled": { "name": "Regeneration enabled" },
       "lockout_status": { "name": "Lockout status" }
-    }
-  }
-}
-{
-  "config": {
-    "step": {
-      "user": {
-        "title": "iQua Softener",
-        "description": "Enter your iQua credentials and the device UUID.",
-        "data": {
-          "email": "Email",
-          "password": "Password",
-          "device_uuid": "Device UUID"
-        }
-      }
     }
   }
 }
