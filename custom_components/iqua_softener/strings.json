@@ -5,9 +5,9 @@
         "data": {
           "username": "Username",
           "password": "Password",
-          "device_sn": "Serial Number"
+          "device_uuid": "Device UUID Number"
         },
-        "description": "Enter your iQua credentials and device serial number.",
+        "description": "Enter your iQua credentials and device UUID number. https://app.myiquaapp.com/devices/<UUID>",
         "title": "Setup"
       }
     }
