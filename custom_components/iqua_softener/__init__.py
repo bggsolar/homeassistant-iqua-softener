@@ -1,16 +1,11 @@
+from __future__ import annotations
+
 import logging
 
 from homeassistant import config_entries, core
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from iqua_softener import IquaSoftener
-
-from .const import (
-    DOMAIN,
-    CONF_USERNAME,
-    CONF_PASSWORD,
-    CONF_DEVICE_UUID,
-)
+from .const import DOMAIN, CONF_EMAIL, CONF_PASSWORD, CONF_DEVICE_UUID
 from .coordinator import IquaSoftenerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,15 +20,11 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     if entry.options:
         hass_data.update(entry.options)
 
-    device_uuid = hass_data[CONF_DEVICE_UUID]
-
     coordinator = IquaSoftenerCoordinator(
         hass,
-        IquaSoftener(
-            hass_data[CONF_USERNAME],
-            hass_data[CONF_PASSWORD],
-            device_uuid,
-        ),
+        email=hass_data[CONF_EMAIL],
+        password=hass_data[CONF_PASSWORD],
+        device_uuid=hass_data[CONF_DEVICE_UUID],
     )
 
     try:
