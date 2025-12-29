@@ -2,13 +2,13 @@
   "config": {
     "step": {
       "user": {
+        "title": "iQua Softener",
+        "description": "Gib deine iQua-Zugangsdaten und die Geräte-UUID an.",
         "data": {
-          "username": "Username",
-          "password": "Password",
-          "device_uuid": "Device UUID Number"
-        },
-        "description": "Enter your iQua credentials and device UUID number. https://app.myiquaapp.com/devices/<UUID>",
-        "title": "Setup"
+          "email": "E-Mail",
+          "password": "Passwort",
+          "device_uuid": "Geräte-UUID"
+        }
       }
     }
   }
