@@ -23,7 +23,7 @@ from homeassistant.const import UnitOfVolume
 
 from .const import (
     DOMAIN,
-    CONF_DEVICE_SERIAL_NUMBER,
+    CONF_DEVICE_UUID,
     VOLUME_FLOW_RATE_LITERS_PER_MINUTE,
     VOLUME_FLOW_RATE_GALLONS_PER_MINUTE,
 )
@@ -41,11 +41,11 @@ async def async_setup_entry(
     if config_entry.options:
         config.update(config_entry.options)
 
-    device_serial_number = config[CONF_DEVICE_SERIAL_NUMBER]
+    device_uuid = config[CONF_DEVICE_UUID]
     coordinator: IquaSoftenerCoordinator = config["coordinator"]
 
     sensors = [
-        clz(coordinator, device_serial_number, entity_description)
+        clz(coordinator, device_uuid, entity_description)
         for clz, entity_description in (
             (
                 IquaSoftenerStateSensor,
@@ -132,12 +132,12 @@ class IquaSoftenerSensor(SensorEntity, CoordinatorEntity, ABC):
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
-        device_serial_number: str,
+        device_uuid: str,
         entity_description: SensorEntityDescription | None = None,
     ):
         super().__init__(coordinator)
         self._attr_unique_id = (
-            f"{device_serial_number}_{entity_description.key}".lower()
+            f"{device_uuid}_{entity_description.key}".lower()
         )
 
         if entity_description is not None:
