@@ -10,7 +10,7 @@ from .const import (
     DOMAIN,
     CONF_USERNAME,
     CONF_PASSWORD,
-    CONF_DEVICE_SERIAL_NUMBER,
+    CONF_DEVICE_UUID,
 )
 from .coordinator import IquaSoftenerCoordinator
 
@@ -28,14 +28,17 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     if entry.options:
         hass_data.update(entry.options)
 
-    device_serial_number = hass_data[CONF_DEVICE_SERIAL_NUMBER]
+    if "device_serial_number" in hass_data and CONF_DEVICE_UUID not in hass_date:
+        hass_date[CONF_DEVICE_UUID] = hass_data["device_serial_number"]
+
+    devide_uuid = hass_data[CONF_DEVICE_UUID]
 
     coordinator = IquaSoftenerCoordinator(
         hass,
         IquaSoftener(
             hass_data[CONF_USERNAME],
             hass_data[CONF_PASSWORD],
-            device_serial_number,
+            device_uuid,
         ),
     )
 
