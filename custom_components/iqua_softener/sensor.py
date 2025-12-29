@@ -23,6 +23,8 @@ from .const import (
 
 from .coordinator import IquaSoftenerCoordinator
 
+from homeassistant.helpers.entity import DeviceInfo
+
 _LOGGER = logging.getLogger(__name__)
 
 
