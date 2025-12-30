@@ -266,9 +266,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return r.json()
 
     def _fetch_web_sequence(self) -> Dict[str, Any]:
-        """
-        Mimic the web app calls that may 'refresh' device data server-side.
-        """
+        """Mimic the web app calls that may 'refresh' device data server-side."""
         try:
             _ = self._get("auth/check")
         except Exception as err:
@@ -285,7 +283,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("detail-or-summary failed (ignored): %s", err)
 
-        # useful trace
         try:
             props = (detail.get("device", {}) or {}).get("properties", {}) or {}
             app_active = (props.get("app_active", {}) or {}).get("value")
@@ -303,7 +300,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return detail
 
     def _fetch_debug(self) -> Dict[str, Any]:
-        # run web-sequence first
         _ = self._fetch_web_sequence()
         return self._get(f"devices/{self._device_uuid}/debug")
 
@@ -338,14 +334,14 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     canonical = f"{gkey}.{raw_item_key}"
 
                 kv[canonical] = value
-                
-                # --- Alias keys to keep sensors stable ---
-                # Some accounts/devices expose the timestamp under different group keys.
-                if "customer.time_message_received" not in kv:
-                    for k in list(kv.keys()):
-                        if k.endswith(".time_message_received") and kv.get(k) is not None:
-                            kv["customer.time_message_received"] = kv[k]
-                            break
+
+        # --- Alias keys to keep sensors stable ---
+        # Some accounts/devices expose the timestamp under different group keys.
+        if "customer.time_message_received" not in kv:
+            for k in list(kv.keys()):
+                if k.endswith(".time_message_received") and kv.get(k) is not None:
+                    kv["customer.time_message_received"] = kv[k]
+                    break
 
         return {"kv": kv, "tables": tables}
 
