@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
@@ -11,7 +12,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 _LOGGER = logging.getLogger(__name__)
 
-UPDATE_INTERVAL = timedelta(minutes=10)
+# ✅ 15 Minuten Polling
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 # Web endpoints (discovered from your browser devtools)
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
@@ -93,7 +95,6 @@ CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     ("rock_removed", "since_regen_rock_removed"): "rock_removed.since_regen_rock_removed",
 
     # ---- Regenerations (API bug!) ----
-    # In the API JSON, this item has key "total_rock_removed" but label "Time in Operation (Days)"
     ("regenerations", "total_rock_removed"): "regenerations.time_in_operation_days",
     ("regenerations", "total_regens"): "regenerations.total_regens",
     ("regenerations", "manual_regens"): "regenerations.manual_regens",
@@ -120,7 +121,6 @@ CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
 
 
 def _normalize_group_key(group_key: str) -> str:
-    """API group keys are already stable; keep as-is but be defensive."""
     return str(group_key or "").strip().lower()
 
 
@@ -129,24 +129,14 @@ def _normalize_item_key(item_key: str) -> str:
 
 
 def _extract_item_value(item: Dict[str, Any]) -> Any:
-    """
-    Each group item can be:
-      - type: "kv" -> item_kv: {label, value}
-      - type: "table" -> item_table: {title, column_titles, rows}
-    """
     if item.get("type") == "kv":
         kv = item.get("item_kv") or {}
         if isinstance(kv, dict):
             return kv.get("value")
-        return None
     return None
 
 
 def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Collect 'table' items into:
-      tables[<table_key>] = {"column_titles": [...], "rows": [...]}
-    """
     tables: Dict[str, Any] = {}
     for g in groups:
         if not isinstance(g, dict):
@@ -167,8 +157,6 @@ def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
             if not isinstance(table, dict):
                 continue
 
-            # We store tables by their item.key (not group), because your sensor expects "daily_water_usage_patterns"
-            # But still: key collision is unlikely for tables; if it happens we can namespace later.
             tables[table_key] = {
                 "title": table.get("title"),
                 "column_titles": table.get("column_titles", []),
@@ -180,14 +168,6 @@ def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """
-    Coordinator fetches:
-      - POST /auth/login (email+password) -> access_token
-      - GET  /devices/<uuid>/debug       -> groups[]
-    And normalizes everything into:
-      data = {"kv": {canonical_key: value, ...}, "tables": {...}}
-    """
-
     def __init__(
         self,
         hass: HomeAssistant,
@@ -224,26 +204,23 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return self._session
 
     def _headers(self, *, with_auth: bool = True) -> Dict[str, str]:
+        # ✅ cache avoidance to mimic browser/devtools behavior
         h: Dict[str, str] = {
             "User-Agent": self._user_agent,
             "Accept": "application/json",
             "Origin": self._app_origin,
             "Referer": self._app_origin + "/",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
         }
         if with_auth and self._access_token:
             h["Authorization"] = f"Bearer {self._access_token}"
         return h
 
     def _url(self, path: str) -> str:
-        path = path.lstrip("/")
-        return f"{self._api_base_url}/{path}"
+        return f"{self._api_base_url}/{path.lstrip('/')}"
 
     def _login(self) -> None:
-        """
-        POST /auth/login
-        Body: {"email": "...", "password": "..."}
-        Response: {"access_token": "...", "refresh_token": "...", ...}
-        """
         sess = self._get_session()
         r = sess.post(
             self._url("auth/login"),
@@ -263,31 +240,30 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._access_token = token
 
     def _fetch_debug(self) -> Dict[str, Any]:
-        """
-        GET /devices/<uuid>/debug  (UUID, not serial!)
-        """
         sess = self._get_session()
+
+        # ✅ cache buster in query string
+        params = {"_": int(time.time() * 1000)}
+
         r = sess.get(
             self._url(f"devices/{self._device_uuid}/debug"),
             headers=self._headers(with_auth=True),
+            params=params,
             timeout=20,
         )
 
-        # Token might be expired/invalid
         if r.status_code in (401, 403):
             self._access_token = None
             self._login()
             r = sess.get(
                 self._url(f"devices/{self._device_uuid}/debug"),
                 headers=self._headers(with_auth=True),
+                params=params,
                 timeout=20,
             )
 
         if r.status_code != 200:
-            # 422 indicates wrong identifier or missing permission
-            raise UpdateFailed(
-                f"Debug request failed: HTTP {r.status_code} for {r.url}"
-            )
+            raise UpdateFailed(f"Debug request failed: HTTP {r.status_code} for {r.url}")
 
         return r.json()
 
@@ -309,28 +285,20 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 continue
 
             for item in items:
-                if not isinstance(item, dict):
-                    continue
-
-                if item.get("type") != "kv":
+                if not isinstance(item, dict) or item.get("type") != "kv":
                     continue
 
                 raw_item_key = _normalize_item_key(item.get("key", ""))
                 value = _extract_item_value(item)
 
-                # Canonicalize key: ensure NO collisions
                 canonical = CANONICAL_KV_MAP.get((gkey, raw_item_key))
                 if canonical is None:
-                    # Fallback is still namespaced -> collision-safe
                     canonical = f"{gkey}.{raw_item_key}"
 
                 kv[canonical] = value
 
         return {"kv": kv, "tables": tables}
 
-    # -----------------------------
-    # HA coordinator entrypoint
-    # -----------------------------
     async def _async_update_data(self) -> Dict[str, Any]:
         try:
             return await self.hass.async_add_executor_job(self._sync_update)
@@ -342,14 +310,12 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             raise UpdateFailed(f"Unexpected error: {type(err).__name__}: {err}") from err
 
     def _sync_update(self) -> Dict[str, Any]:
-        # Ensure we are logged in
         if not self._access_token:
             self._login()
 
         payload = self._fetch_debug()
         data = self._parse_debug_json(payload)
 
-        # Extra defensive: make sure we always have dicts
         if not isinstance(data, dict) or "kv" not in data:
             raise UpdateFailed("Parsed data invalid")
 
