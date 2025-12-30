@@ -95,6 +95,12 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Platforms register as coordinator listeners only after forwarding.
+    # We already fetched once via async_config_entry_first_refresh() above,
+    # so push the current data to listeners immediately (no extra API call).
+    if coordinator.data is not None:
+        coordinator.async_set_updated_data(coordinator.data)
     return True
 
 
