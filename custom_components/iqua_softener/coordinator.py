@@ -11,18 +11,15 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 _LOGGER = logging.getLogger(__name__)
 
-# Polling interval
-UPDATE_INTERVAL = timedelta(minutes=30)
+# Polling interval: 15 minutes
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
 DEFAULT_USER_AGENT = "Mozilla/5.0 (HomeAssistant iQuaSoftener)"
 
 
-# -----------------------------
-# Canonical mapping
 # (group_key, item_key) -> canonical kv key
-# -----------------------------
 CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     # ---- Customer / metadata ----
     ("customer", "time_message_received"): "customer.time_message_received",
@@ -93,7 +90,6 @@ CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     ("rock_removed", "since_regen_rock_removed"): "rock_removed.since_regen_rock_removed",
 
     # ---- Regenerations (API bug!) ----
-    # In the API JSON, this item has key "total_rock_removed" but label "Time in Operation (Days)"
     ("regenerations", "total_rock_removed"): "regenerations.time_in_operation_days",
     ("regenerations", "total_regens"): "regenerations.total_regens",
     ("regenerations", "manual_regens"): "regenerations.manual_regens",
@@ -136,7 +132,6 @@ def _extract_item_value(item: Dict[str, Any]) -> Any:
 
 
 def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
-    """Collect 'table' items into tables[table_key]."""
     tables: Dict[str, Any] = {}
     for g in groups:
         if not isinstance(g, dict):
@@ -167,7 +162,7 @@ def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """Fetch + normalize iQua data."""
+    """Fetch + normalize device data."""
 
     def __init__(
         self,
@@ -196,9 +191,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._access_token: Optional[str] = None
         self._session: Optional[requests.Session] = None
 
-    # -----------------------------
-    # HTTP helpers (sync; executor)
-    # -----------------------------
     def _get_session(self) -> requests.Session:
         if self._session is None:
             self._session = requests.Session()
@@ -216,8 +208,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return h
 
     def _url(self, path: str) -> str:
-        path = path.lstrip("/")
-        return f"{self._api_base_url}/{path}"
+        return f"{self._api_base_url}/{path.lstrip('/')}"
 
     def _login(self) -> None:
         sess = self._get_session()
@@ -240,20 +231,12 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     def _get(self, path: str) -> Dict[str, Any]:
         sess = self._get_session()
-        r = sess.get(
-            self._url(path),
-            headers=self._headers(with_auth=True),
-            timeout=20,
-        )
+        r = sess.get(self._url(path), headers=self._headers(with_auth=True), timeout=20)
 
         if r.status_code in (401, 403):
             self._access_token = None
             self._login()
-            r = sess.get(
-                self._url(path),
-                headers=self._headers(with_auth=True),
-                timeout=20,
-            )
+            r = sess.get(self._url(path), headers=self._headers(with_auth=True), timeout=20)
 
         if r.status_code != 200:
             raise UpdateFailed(f"GET failed: HTTP {r.status_code} for {r.url}")
@@ -261,12 +244,12 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return r.json()
 
     def _fetch_web_sequence(self) -> None:
-        """Mimic the web app calls that may refresh device data server-side."""
-        for path in ("auth/check", "app/data", f"devices/{self._device_uuid}/detail-or-summary"):
+        """Mimic web app calls that may trigger server-side refresh."""
+        for path in ("app/data", "auth/check", f"devices/{self._device_uuid}/detail-or-summary"):
             try:
-                _ = self._get(path)
-            except Exception as err:
-                _LOGGER.debug("%s failed (ignored): %s", path, err)
+                self._get(path)
+            except Exception:
+                _LOGGER.debug("Pre-call failed (ignored): %s", path)
 
     def _fetch_debug(self) -> Dict[str, Any]:
         self._fetch_web_sequence()
@@ -283,46 +266,29 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         for g in groups:
             if not isinstance(g, dict):
                 continue
-
             gkey = _normalize_group_key(g.get("key", ""))
             items = g.get("items", [])
             if not isinstance(items, list):
                 continue
 
             for item in items:
-                if not isinstance(item, dict):
+                if not isinstance(item, dict) or item.get("type") != "kv":
                     continue
-                if item.get("type") != "kv":
-                    continue
-
                 raw_item_key = _normalize_item_key(item.get("key", ""))
                 value = _extract_item_value(item)
 
-                canonical = CANONICAL_KV_MAP.get((gkey, raw_item_key))
-                if canonical is None:
-                    canonical = f"{gkey}.{raw_item_key}"
-
+                canonical = CANONICAL_KV_MAP.get((gkey, raw_item_key)) or f"{gkey}.{raw_item_key}"
                 kv[canonical] = value
 
-        # ---- Alias: time_message_received (some accounts might expose this under another group) ----
-        if kv.get("customer.time_message_received") is None:
-            for k, v in kv.items():
-                if k.endswith(".time_message_received") and v is not None:
-                    kv["customer.time_message_received"] = v
+        # Alias for robustness (timestamp appears under different groups for some accounts)
+        if "customer.time_message_received" not in kv:
+            for k in list(kv.keys()):
+                if k.endswith(".time_message_received") and kv.get(k) is not None:
+                    kv["customer.time_message_received"] = kv[k]
                     break
-
-        # ---- DEBUG: show what we actually received for the last-message timestamp ----
-        try:
-            candidates = {k: kv.get(k) for k in kv.keys() if k.endswith(".time_message_received")}
-            _LOGGER.debug("time_message_received candidates: %s", candidates)
-        except Exception:
-            pass
 
         return {"kv": kv, "tables": tables}
 
-    # -----------------------------
-    # HA coordinator entrypoint
-    # -----------------------------
     async def _async_update_data(self) -> Dict[str, Any]:
         try:
             return await self.hass.async_add_executor_job(self._sync_update)
