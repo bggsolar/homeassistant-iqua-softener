@@ -345,7 +345,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     for k in list(kv.keys()):
                         if k.endswith(".time_message_received") and kv.get(k) is not None:
                             kv["customer.time_message_received"] = kv[k]
-                        break
+                            break
 
         return {"kv": kv, "tables": tables}
 
