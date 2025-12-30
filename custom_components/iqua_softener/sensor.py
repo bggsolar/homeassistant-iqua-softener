@@ -875,4 +875,4 @@ async def async_setup_entry(
     except Exception:
         _LOGGER.debug("Failed to seed initial sensor values", exc_info=True)
 
-async_add_entities(sensors)
+    async_add_entities(sensors)
