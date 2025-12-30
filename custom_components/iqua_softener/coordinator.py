@@ -338,6 +338,14 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     canonical = f"{gkey}.{raw_item_key}"
 
                 kv[canonical] = value
+                
+                # --- Alias keys to keep sensors stable ---
+                # Some accounts/devices expose the timestamp under different group keys.
+                if "customer.time_message_received" not in kv:
+                    for k in list(kv.keys()):
+                        if k.endswith(".time_message_received") and kv.get(k) is not None:
+                            kv["customer.time_message_received"] = kv[k]
+                        break
 
         return {"kv": kv, "tables": tables}
 
