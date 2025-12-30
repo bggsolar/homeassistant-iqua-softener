@@ -1,6 +1,7 @@
 {
   "entity": {
     "sensor": {
+      "time_message_received": { "name": "Letzte Nachricht empfangen" },
       "capacity_remaining_percent": { "name": "Restkapazität" },
       "average_capacity_remaining_at_regen_percent": { "name": "Ø Restkapazität bei Regeneration" },
 
