@@ -11,8 +11,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 _LOGGER = logging.getLogger(__name__)
 
-# Polling – gewünscht: 15 Minuten
-UPDATE_INTERVAL = timedelta(minutes=5)
+# Polling interval
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -93,7 +93,7 @@ CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     ("rock_removed", "since_regen_rock_removed"): "rock_removed.since_regen_rock_removed",
 
     # ---- Regenerations (API bug!) ----
-    # In some debug payloads this item key is wrong; we canonicalize it:
+    # In the API JSON, this item has key "total_rock_removed" but label "Time in Operation (Days)"
     ("regenerations", "total_rock_removed"): "regenerations.time_in_operation_days",
     ("regenerations", "total_regens"): "regenerations.total_regens",
     ("regenerations", "manual_regens"): "regenerations.manual_regens",
@@ -127,25 +127,16 @@ def _normalize_item_key(item_key: str) -> str:
     return str(item_key or "").strip().lower()
 
 
-def _extract_kv_label_and_value(item: Dict[str, Any]) -> Tuple[Optional[str], Any]:
-    """
-    For type: "kv", returns (label, value).
-    """
-    if item.get("type") != "kv":
-        return None, None
-    kv = item.get("item_kv") or {}
-    if not isinstance(kv, dict):
-        return None, None
-    label = kv.get("label")
-    value = kv.get("value")
-    return (str(label).strip() if label is not None else None), value
+def _extract_item_value(item: Dict[str, Any]) -> Any:
+    if item.get("type") == "kv":
+        kv = item.get("item_kv") or {}
+        if isinstance(kv, dict):
+            return kv.get("value")
+    return None
 
 
 def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Collect 'table' items into:
-      tables[<table_key>] = {"column_titles": [...], "rows": [...]}
-    """
+    """Collect 'table' items into tables[table_key]."""
     tables: Dict[str, Any] = {}
     for g in groups:
         if not isinstance(g, dict):
@@ -172,70 +163,11 @@ def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
                 "rows": table.get("rows", []),
                 "group": gkey,
             }
-
     return tables
 
 
-def _merge_detail_properties_into_kv(detail: Dict[str, Any], kv: Dict[str, Any]) -> None:
-    """
-    Add device.properties from /detail-or-summary into kv under "detail.<propname>".
-    This gives you a second, often fresher, data source without collisions.
-    """
-    try:
-        device = detail.get("device", {}) if isinstance(detail, dict) else {}
-        props = device.get("properties", {}) if isinstance(device, dict) else {}
-        if not isinstance(props, dict):
-            return
-
-        for prop_name, prop_obj in props.items():
-            if not isinstance(prop_obj, dict):
-                continue
-            # prefer converted_value if present
-            if "converted_value" in prop_obj:
-                val = prop_obj.get("converted_value")
-            else:
-                val = prop_obj.get("value")
-            kv[f"detail.{str(prop_name).strip().lower()}"] = val
-
-        # also expose enriched_data shortcuts (optional)
-        enriched = device.get("enriched_data", {}) if isinstance(device, dict) else {}
-        if isinstance(enriched, dict):
-            wt = enriched.get("water_treatment", {})
-            if isinstance(wt, dict):
-                pwa = wt.get("pwa")
-                if pwa is not None:
-                    kv["detail.enriched.pwa"] = pwa
-                control_version = wt.get("control_version")
-                if control_version is not None:
-                    kv["detail.enriched.control_version"] = control_version
-                days_powered = wt.get("days_powered_up")
-                if days_powered is not None:
-                    kv["detail.enriched.days_powered_up"] = days_powered
-                days_since_last = wt.get("days_since_last_recharge")
-                if days_since_last is not None:
-                    kv["detail.enriched.days_since_last_recharge"] = days_since_last
-                salt_percent = wt.get("salt_level_percent")
-                if salt_percent is not None:
-                    kv["detail.enriched.salt_level_percent"] = salt_percent
-    except Exception:
-        # keep coordinator robust
-        return
-
-
-def _label_key(s: Optional[str]) -> str:
-    return (s or "").strip().lower()
-
-
 class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """
-    Fetch + normalize:
-      - POST /auth/login
-      - GET  /auth/check
-      - GET  /app/data
-      - GET  /devices/<id>/detail-or-summary
-      - GET  /devices/<id>/debug
-    data = {"kv": {canonical_key: value}, "tables": {...}, "detail": {...}}
-    """
+    """Fetch + normalize iQua data."""
 
     def __init__(
         self,
@@ -328,45 +260,16 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return r.json()
 
-    def _fetch_web_sequence(self) -> Dict[str, Any]:
-        """
-        Mimic the web app calls. In vielen Fällen sorgt das dafür,
-        dass serverseitig frische Properties/Shadow-Daten bereitstehen.
-        """
-        try:
-            _ = self._get("auth/check")
-        except Exception as err:
-            _LOGGER.debug("auth/check failed (ignored): %s", err)
-
-        try:
-            _ = self._get("app/data")
-        except Exception as err:
-            _LOGGER.debug("app/data failed (ignored): %s", err)
-
-        detail: Dict[str, Any] = {}
-        try:
-            detail = self._get(f"devices/{self._device_uuid}/detail-or-summary")
-        except Exception as err:
-            _LOGGER.debug("detail-or-summary failed (ignored): %s", err)
-
-        # helpful trace
-        try:
-            props = (detail.get("device", {}) or {}).get("properties", {}) or {}
-            app_active = (props.get("app_active", {}) or {}).get("value")
-            app_active_updated = (props.get("app_active", {}) or {}).get("updated_at")
-            online_updated = (props.get("_internal_is_online", {}) or {}).get("updated_at")
-            _LOGGER.debug(
-                "detail-or-summary: app_active=%s (updated_at=%s), online_updated_at=%s",
-                app_active,
-                app_active_updated,
-                online_updated,
-            )
-        except Exception:
-            pass
-
-        return detail
+    def _fetch_web_sequence(self) -> None:
+        """Mimic the web app calls that may refresh device data server-side."""
+        for path in ("auth/check", "app/data", f"devices/{self._device_uuid}/detail-or-summary"):
+            try:
+                _ = self._get(path)
+            except Exception as err:
+                _LOGGER.debug("%s failed (ignored): %s", path, err)
 
     def _fetch_debug(self) -> Dict[str, Any]:
+        self._fetch_web_sequence()
         return self._get(f"devices/{self._device_uuid}/debug")
 
     def _parse_debug_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -376,9 +279,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         kv: Dict[str, Any] = {}
         tables = _parse_tables(groups)
-
-        # We keep labels for robust fallbacks
-        label_index: Dict[str, Any] = {}
 
         for g in groups:
             if not isinstance(g, dict):
@@ -396,7 +296,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     continue
 
                 raw_item_key = _normalize_item_key(item.get("key", ""))
-                label, value = _extract_kv_label_and_value(item)
+                value = _extract_item_value(item)
 
                 canonical = CANONICAL_KV_MAP.get((gkey, raw_item_key))
                 if canonical is None:
@@ -404,21 +304,19 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
                 kv[canonical] = value
 
-                if label:
-                    label_index[_label_key(label)] = value
-
-        # ---- Robust fallback for "time_message_received" ----
-        # If mapping does not hit, try by label (this is what you see in UI)
+        # ---- Alias: time_message_received (some accounts might expose this under another group) ----
         if kv.get("customer.time_message_received") is None:
-            for candidate_label in (
-                "time message received",
-                "time message recieved",  # just in case typo exists upstream
-                "letzte nachricht empfangen",
-                "last message received",
-            ):
-                if candidate_label in label_index and label_index[candidate_label] is not None:
-                    kv["customer.time_message_received"] = label_index[candidate_label]
+            for k, v in kv.items():
+                if k.endswith(".time_message_received") and v is not None:
+                    kv["customer.time_message_received"] = v
                     break
+
+        # ---- DEBUG: show what we actually received for the last-message timestamp ----
+        try:
+            candidates = {k: kv.get(k) for k in kv.keys() if k.endswith(".time_message_received")}
+            _LOGGER.debug("time_message_received candidates: %s", candidates)
+        except Exception:
+            pass
 
         return {"kv": kv, "tables": tables}
 
@@ -439,29 +337,10 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not self._access_token:
             self._login()
 
-        # 1) do the web-like sequence and keep detail payload
-        detail = self._fetch_web_sequence()
+        payload = self._fetch_debug()
+        data = self._parse_debug_json(payload)
 
-        # 2) fetch debug (still valuable for grouped tables etc.)
-        debug_payload = self._fetch_debug()
-        parsed = self._parse_debug_json(debug_payload)
+        if not isinstance(data, dict) or "kv" not in data:
+            raise UpdateFailed("Parsed data invalid")
 
-        kv = parsed.get("kv", {})
-        if not isinstance(kv, dict):
-            kv = {}
-
-        # 3) merge detail properties as additional kv source (often fresher)
-        if isinstance(detail, dict):
-            _merge_detail_properties_into_kv(detail, kv)
-
-        # helpful debug marker: time_message_received
-        _LOGGER.debug(
-            "time_message_received=%s",
-            kv.get("customer.time_message_received"),
-        )
-
-        return {
-            "kv": kv,
-            "tables": parsed.get("tables", {}),
-            "detail": detail,
-        }
+        return data
