@@ -248,9 +248,13 @@ class IquaTimestampSensor(IquaBaseSensor):
         device_uuid: str,
         description: SensorEntityDescription,
         canonical_kv_key: str,
+        *,
+        transform=None,
     ) -> None:
         super().__init__(coordinator, device_uuid, description)
         self._k = canonical_kv_key
+        # Default parser handles both ISO 8601 and iQua formats like '30/12/2025 21:38'
+        self._transform = transform or _to_datetime
 
     def update_from_data(self, data: Dict[str, Any]) -> None:
         kv = data.get("kv", {})
@@ -259,7 +263,11 @@ class IquaTimestampSensor(IquaBaseSensor):
             return
 
         raw = kv.get(self._k)
-        dt = _parse_iso_datetime(raw)
+        try:
+            dt = self._transform(raw)
+        except Exception:
+            dt = None
+
         self._attr_native_value = dt
 
 
