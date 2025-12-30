@@ -1,7 +1,8 @@
 {
   "entity": {
     "sensor": {
-      "time_message_received": { "name": "Letzte Nachricht empfangen" },
+      "last_message_received": { "name": "Letzte Nachricht empfangen" },
+
       "capacity_remaining_percent": { "name": "Restkapazität" },
       "average_capacity_remaining_at_regen_percent": { "name": "Ø Restkapazität bei Regeneration" },
 
@@ -27,28 +28,28 @@
       "daily_average_rock_removed_kg": { "name": "Stein entfernt Ø pro Tag" },
       "since_regen_rock_removed_kg": { "name": "Stein entfernt seit Regeneration" },
 
-      "controller_time": { "name": "Controller-Uhrzeit" },
-      "regen_time_remaining": { "name": "Restzeit Regeneration" },
-
-      "time_in_operation_days": { "name": "Betriebsdauer" },
+      "time_in_operation_days": { "name": "Betriebszeit (Tage)" },
       "total_regens": { "name": "Regenerationen gesamt" },
       "manual_regens": { "name": "Manuelle Regenerationen" },
-      "second_backwash_cycles": { "name": "2. Rückspülzyklen" },
+      "second_backwash_cycles": { "name": "Rückspülzyklen" },
       "time_since_last_recharge_days": { "name": "Tage seit letzter Regeneration" },
       "average_days_between_recharge_days": { "name": "Ø Tage zwischen Regenerationen" },
 
       "total_power_outages": { "name": "Stromausfälle gesamt" },
-      "total_times_power_lost": { "name": "Strom weg (Anzahl)" },
-      "days_since_last_time_loss": { "name": "Tage seit letztem Ausfall" },
+      "total_times_power_lost": { "name": "Stromverlust-Ereignisse gesamt" },
+      "days_since_last_time_loss": { "name": "Tage seit letztem Stromverlust" },
       "longest_recorded_outage": { "name": "Längster Stromausfall" },
 
-      "functional_water_meter_sensor": { "name": "Funktionscheck: Wasserzähler-Sensor" },
-      "functional_computer_board": { "name": "Funktionscheck: Steuerplatine" },
-      "functional_cord_power_supply": { "name": "Funktionscheck: Netzteil/Netzkabel" },
+      "functional_water_meter_sensor": { "name": "Wasserzähler-Sensor" },
+      "functional_computer_board": { "name": "Steuerplatine" },
+      "functional_cord_power_supply": { "name": "Netzteil/Netzkabel" },
 
       "misc_second_output": { "name": "Zweiter Ausgang" },
       "misc_regeneration_enabled": { "name": "Regeneration aktiviert" },
-      "misc_lockout_status": { "name": "Sperrstatus" }
+      "misc_lockout_status": { "name": "Sperrstatus" },
+
+      "controller_time": { "name": "Controller-Zeit" },
+      "regen_time_remaining": { "name": "Restzeit Regeneration (HH:MM)" }
     }
   }
 }
