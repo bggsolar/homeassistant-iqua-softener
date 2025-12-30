@@ -33,6 +33,48 @@ def _as_str(v: Any) -> Optional[str]:
     return s if s else None
 
 
+def _to_datetime(v: Any) -> Any:
+    """Parse iQua timestamps to timezone-aware datetime.
+
+    Known format from Ease UI: '30/12/2025 21:38' (DD/MM/YYYY HH:MM).
+    Returns timezone-aware datetime in UTC for device_class TIMESTAMP.
+    """
+    if v is None:
+        return None
+
+    # Already a datetime?
+    try:
+        from datetime import datetime as _dt
+        if isinstance(v, _dt):
+            return dt_util.as_utc(dt_util.as_local(v))
+    except Exception:
+        pass
+
+    s = str(v).strip()
+    if not s:
+        return None
+
+    # Try ISO first (sometimes APIs change)
+    try:
+        dt = dt_util.parse_datetime(s)
+        if dt is not None:
+            return dt_util.as_utc(dt_util.as_local(dt))
+    except Exception:
+        pass
+
+    # DD/MM/YYYY HH:MM (observed)
+    for fmt in ("%d/%m/%Y %H:%M", "%d.%m.%Y %H:%M"):
+        try:
+            dt = datetime.strptime(s, fmt)  # naive local time
+            # Attach local timezone and convert to UTC
+            dt = dt.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+            return dt_util.as_utc(dt)
+        except Exception:
+            continue
+
+    return None
+
+
 def _to_float(v: Any) -> Optional[float]:
     """Parse numbers that might come as '3.6 Days', '3,6 Tage', '76.5%' etc."""
     if v is None:
@@ -318,6 +360,7 @@ async def async_setup_entry(
                 icon="mdi:message-processing-outline",
             ),
             "customer.time_message_received",
+            transform=_to_datetime,
         ),
 
         # ================== Capacity ==================
