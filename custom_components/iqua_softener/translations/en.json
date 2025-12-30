@@ -1,6 +1,7 @@
 {
   "entity": {
     "sensor": {
+      "time_message_received": { "name": "Last message received" },
       "capacity_remaining_percent": { "name": "Capacity remaining" },
       "average_capacity_remaining_at_regen_percent": { "name": "Avg. capacity remaining at recharge" },
 
