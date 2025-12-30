@@ -4,6 +4,9 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
+from datetime import datetime
+from homeassistant.util import dt as dt_util
+
 from homeassistant import config_entries, core
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -23,6 +26,16 @@ _LOGGER = logging.getLogger(__name__)
 
 
 # ---------- Helpers ----------
+
+def _to_datetime(v: Any) -> Optional[datetime]:
+    s = _as_str(v)
+    if not s:
+        return None
+    try:
+        # akzeptiert z.B. "2025-12-30T13:09:41Z"
+        return dt_util.parse_datetime(s)
+    except Exception:
+        return None
 
 def _as_str(v: Any) -> Optional[str]:
     if v is None:
@@ -261,6 +274,21 @@ async def async_setup_entry(
 
     sensors: list[IquaBaseSensor] = [
 
+        # ------------------ Customer / Meta ------------------
+        IquaKVSensor(
+            coordinator,
+            device_uuid,
+            SensorEntityDescription(
+                key="time_message_received",
+                translation_key="time_message_received",
+                device_class=SensorDeviceClass.TIMESTAMP,
+                icon="mdi:clock-check-outline",
+            ),
+            "customer.time_message_received",
+            transform=_to_datetime,
+        ),
+
+        
         # ================== Capacity ==================
         IquaKVSensor(
             coordinator,
