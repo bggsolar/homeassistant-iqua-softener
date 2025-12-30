@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # ✅ Polling alle 15 Minuten
-UPDATE_INTERVAL = timedelta(minutes=15)
+UPDATE_INTERVAL = timedelta(minutes=5)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
