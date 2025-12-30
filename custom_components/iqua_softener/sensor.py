@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Iterable
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 from homeassistant import config_entries, core
 from homeassistant.components.sensor import (
@@ -33,10 +34,7 @@ def _as_str(v: Any) -> Optional[str]:
 
 
 def _to_float(v: Any) -> Optional[float]:
-    """
-    Parse numeric values that may come as strings like:
-      '76.5%', '3.6 Days', '3.6 Tage', '3,6 Tage'
-    """
+    """Parse numbers that might come as '3.6 Days', '3,6 Tage', '76.5%' etc."""
     if v is None:
         return None
 
@@ -45,13 +43,15 @@ def _to_float(v: Any) -> Optional[float]:
     # normalize decimal comma
     s = s.replace(",", ".")
 
-    # strip common unit/junk suffixes
+    # strip common suffixes/units/words from API/UI
     for token in (
         "%",
         "Days",
         "Day",
         "Tage",
         "Tag",
+        "days",
+        "day",
     ):
         s = s.replace(token, "")
 
@@ -73,52 +73,34 @@ def _round(v: Optional[float], ndigits: int) -> Optional[float]:
 
 
 def _salt_monitor_to_percent(raw: Any) -> Optional[float]:
-    """
-    salt_monitor_level seems to be 0..50 where 50 == 100%.
-    """
+    """Salt monitor level seems 0..50 where 50 == 100%."""
     f = _to_float(raw)
     if f is None:
         return None
-    if f < 0:
-        f = 0
-    if f > 50:
-        f = 50
+    f = max(0.0, min(50.0, f))
     return (f / 50.0) * 100.0
 
 
-def _parse_timestamp(raw: Any) -> Optional[Any]:
-    """
-    Parse ISO timestamp strings like '2025-12-30T13:09:41Z'
-    into timezone-aware datetime for SensorDeviceClass.TIMESTAMP.
-    """
-    s = _as_str(raw)
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    """Parse ISO string into aware datetime."""
+    s = _as_str(value)
     if not s:
         return None
-
-    # HA helper handles 'Z' and offsets; ensure timezone aware
-    dt = dt_util.parse_datetime(s)
-    if dt is None:
+    try:
+        # iQua uses Z
+        s = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=dt_util.UTC)
+        return dt
+    except Exception:
         return None
-
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=dt_util.UTC)
-
-    return dt
-
-
-def _norm(s: Any) -> str:
-    return str(s or "").strip().lower()
 
 
 # ---------- Base classes ----------
 
 class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], ABC):
-    """
-    Base sensor:
-      - uses translation_key for friendly name (has_entity_name=True)
-      - stable unique_id: <uuid>_<key>
-      - suggested_object_id: iqua_<key>  -> stable entity_id suggestion
-    """
+    """Base sensor using translations (has_entity_name=True)."""
 
     _attr_has_entity_name = True
 
@@ -132,44 +114,30 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
         self.entity_description = description
         self._device_uuid = device_uuid
 
-        # unique id must be stable and per-device
+        # stable unique id per device
         self._attr_unique_id = f"{device_uuid}_{description.key}".lower()
-
-        # ensure stable entity_id suggestion (sensor.iqua_<key>)
-        key = description.key.lower()
-        if not key.startswith("iqua_"):
-            key = f"iqua_{key}"
-        self._attr_suggested_object_id = key
 
     @property
     def device_info(self) -> DeviceInfo:
-        """
-        Device card in HA:
-          - name: iQua <Model> (<PWA>)
-          - serial_number: PWA (visible)
-          - UUID only in identifiers (internal)
-        """
+        """Device card in HA: show model, sw_version, and PWA as serial_number."""
         data = self.coordinator.data or {}
         kv = data.get("kv", {}) if isinstance(data, dict) else {}
 
         model = _as_str(kv.get("manufacturing_information.model")) or "Softener"
+        sw = _as_str(kv.get("manufacturing_information.base_software_version"))
         pwa = _as_str(kv.get("manufacturing_information.pwa"))
 
-        # Device name must NOT include firmware, otherwise entity_ids get ugly
-        if pwa:
-            name = f"iQua {model} ({pwa})"
-        else:
-            name = f"iQua {model}"
-
-        sw = _as_str(kv.get("manufacturing_information.base_software_version"))
+        # Device name (avoid UUID + avoid firmware in entity_id slug by using PWA)
+        # Example: "iQua Leycosoft Pro 9 (7383865)"
+        name = f"iQua {model} ({pwa})" if pwa else f"iQua {model}"
 
         return DeviceInfo(
-            identifiers={(DOMAIN, self._device_uuid)},  # internal stable ID
+            identifiers={(DOMAIN, self._device_uuid)},
             name=name,
             manufacturer="iQua / EcoWater",
             model=model,
             sw_version=sw,
-            serial_number=pwa,  # show PWA in UI
+            serial_number=pwa,
             configuration_url=f"https://app.myiquaapp.com/devices/{self._device_uuid}",
         )
 
@@ -184,9 +152,7 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
 
 
 class IquaKVSensor(IquaBaseSensor):
-    """
-    Reads a canonical kv key from coordinator.data["kv"][<canonical_key>]
-    """
+    """Reads a canonical kv key from coordinator.data['kv'][canonical_key]."""
 
     def __init__(
         self,
@@ -197,13 +163,11 @@ class IquaKVSensor(IquaBaseSensor):
         *,
         round_digits: Optional[int] = None,
         transform=None,
-        parse_timestamp: bool = False,
     ) -> None:
         super().__init__(coordinator, device_uuid, description)
         self._k = canonical_kv_key
         self._round_digits = round_digits
         self._transform = transform
-        self._parse_timestamp = parse_timestamp
 
     def update_from_data(self, data: Dict[str, Any]) -> None:
         kv = data.get("kv", {})
@@ -214,11 +178,6 @@ class IquaKVSensor(IquaBaseSensor):
         raw = kv.get(self._k)
         if raw is None:
             self._attr_native_value = None
-            return
-
-        # Timestamp sensor: must return datetime
-        if self._parse_timestamp:
-            self._attr_native_value = _parse_timestamp(raw)
             return
 
         # numeric if possible else keep string
@@ -238,11 +197,35 @@ class IquaKVSensor(IquaBaseSensor):
         self._attr_native_value = val
 
 
+class IquaTimestampSensor(IquaBaseSensor):
+    """Timestamp sensor: value must be datetime."""
+
+    def __init__(
+        self,
+        coordinator: IquaSoftenerCoordinator,
+        device_uuid: str,
+        description: SensorEntityDescription,
+        canonical_kv_key: str,
+    ) -> None:
+        super().__init__(coordinator, device_uuid, description)
+        self._k = canonical_kv_key
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        kv = data.get("kv", {})
+        if not isinstance(kv, dict):
+            self._attr_native_value = None
+            return
+
+        raw = kv.get(self._k)
+        dt = _parse_iso_datetime(raw)
+        self._attr_native_value = dt
+
+
 class IquaUsagePatternSensor(IquaBaseSensor):
     """
     Weekly table row:
       - state: weekly average (Liters)
-      - attrs: Mon..Sun floats (we will output attributes with weekday names from table)
+      - attrs: Sun..Sat floats
     """
 
     def __init__(
@@ -251,25 +234,14 @@ class IquaUsagePatternSensor(IquaBaseSensor):
         device_uuid: str,
         description: SensorEntityDescription,
         table_key: str,
-        row_label_candidates: Iterable[str],
+        row_label: str,
         *,
         round_digits: int = 1,
     ) -> None:
         super().__init__(coordinator, device_uuid, description)
-        self._table_key = _norm(table_key)
-        self._row_label_candidates = [_norm(x) for x in row_label_candidates]
+        self._table_key = table_key
+        self._row_label = row_label
         self._round_digits = round_digits
-
-    def _match_row(self, rows: list[dict]) -> Optional[dict]:
-        for r in rows:
-            if not isinstance(r, dict):
-                continue
-            lbl = _norm(r.get("label"))
-            if not lbl:
-                continue
-            if lbl in self._row_label_candidates:
-                return r
-        return None
 
     def update_from_data(self, data: Dict[str, Any]) -> None:
         tables = data.get("tables", {})
@@ -291,7 +263,10 @@ class IquaUsagePatternSensor(IquaBaseSensor):
             self._attr_extra_state_attributes = {}
             return
 
-        row = self._match_row(rows)
+        row = next(
+            (r for r in rows if isinstance(r, dict) and r.get("label") == self._row_label),
+            None,
+        )
         if not row:
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
@@ -332,20 +307,20 @@ async def async_setup_entry(
     device_uuid: str = cfg[CONF_DEVICE_UUID]
 
     sensors: list[IquaBaseSensor] = [
-        # ------------------ Customer ------------------
-        IquaKVSensor(
+        # ================== Customer / Metadata ==================
+        IquaTimestampSensor(
             coordinator,
             device_uuid,
             SensorEntityDescription(
                 key="last_message_received",
                 translation_key="last_message_received",
                 device_class=SensorDeviceClass.TIMESTAMP,
+                icon="mdi:message-processing-outline",
             ),
             "customer.time_message_received",
-            parse_timestamp=True,
         ),
 
-        # ------------------ Capacity ------------------
+        # ================== Capacity ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -371,7 +346,7 @@ async def async_setup_entry(
             round_digits=1,
         ),
 
-        # ------------------ Water usage ------------------
+        # ================== Water usage ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -477,7 +452,7 @@ async def async_setup_entry(
             round_digits=1,
         ),
 
-        # ------------------ Water usage patterns (table) ------------------
+        # ================== Water usage patterns (table) ==================
         IquaUsagePatternSensor(
             coordinator,
             device_uuid,
@@ -491,11 +466,7 @@ async def async_setup_entry(
                 suggested_display_precision=1,
             ),
             table_key="daily_water_usage_patterns",
-            row_label_candidates=[
-                "Average Usage (Liters)",
-                "Average Usage",
-                "Average",
-            ],
+            row_label="Average Usage (Liters)",
             round_digits=1,
         ),
         IquaUsagePatternSensor(
@@ -511,15 +482,11 @@ async def async_setup_entry(
                 suggested_display_precision=1,
             ),
             table_key="daily_water_usage_patterns",
-            row_label_candidates=[
-                "Reserved (Liters)",
-                "Reserved",
-                "Reserve",
-            ],
+            row_label="Reserved (Liters)",
             round_digits=1,
         ),
 
-        # ------------------ Salt usage ------------------
+        # ================== Salt usage ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -587,7 +554,7 @@ async def async_setup_entry(
             round_digits=3,
         ),
 
-        # ------------------ Rock removed ------------------
+        # ================== Rock removed ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -628,7 +595,7 @@ async def async_setup_entry(
             round_digits=3,
         ),
 
-        # ------------------ Regenerations ------------------
+        # ================== Regenerations ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -711,7 +678,7 @@ async def async_setup_entry(
             round_digits=1,
         ),
 
-        # ------------------ Power outages ------------------
+        # ================== Power outages ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -752,6 +719,7 @@ async def async_setup_entry(
             "power_outages.days_since_last_time_loss",
             round_digits=0,
         ),
+        # longest_recorded_outage is a duration string -> keep as string
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -763,7 +731,7 @@ async def async_setup_entry(
             "power_outages.longest_recorded_outage",
         ),
 
-        # ------------------ Functional check (string states) ------------------
+        # ================== Functional check ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -795,7 +763,7 @@ async def async_setup_entry(
             "functional_check.cord_power_supply",
         ),
 
-        # ------------------ Misc (string states) ------------------
+        # ================== Misc ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -827,7 +795,7 @@ async def async_setup_entry(
             "miscellaneous.lockout_status",
         ),
 
-        # ------------------ Program settings (extra) ------------------
+        # ================== Program settings ==================
         IquaKVSensor(
             coordinator,
             device_uuid,
