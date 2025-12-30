@@ -11,8 +11,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 _LOGGER = logging.getLogger(__name__)
 
-# ✅ Polling alle 15 Minuten
-UPDATE_INTERVAL = timedelta(minutes=5)
+# Polling – du wolltest 15 Minuten:
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -145,7 +145,9 @@ def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
             continue
 
         for item in items:
-            if not isinstance(item, dict) or item.get("type") != "table":
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "table":
                 continue
 
             table_key = _normalize_item_key(item.get("key", ""))
@@ -159,10 +161,19 @@ def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
                 "rows": table.get("rows", []),
                 "group": gkey,
             }
+
     return tables
 
 
 class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+    """
+    Fetch + normalize:
+      - POST /auth/login
+      - (web sequence) GET /auth/check, /app/data, /devices/<id>/detail-or-summary
+      - GET /devices/<id>/debug
+    data = {"kv": {canonical_key: value}, "tables": {...}}
+    """
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -190,6 +201,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._access_token: Optional[str] = None
         self._session: Optional[requests.Session] = None
 
+    # -----------------------------
+    # HTTP helpers (sync; executor)
+    # -----------------------------
     def _get_session(self) -> requests.Session:
         if self._session is None:
             self._session = requests.Session()
@@ -201,15 +215,14 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "Accept": "application/json",
             "Origin": self._app_origin,
             "Referer": self._app_origin + "/",
-            # optional, aber hilft manchmal bei Backend-Routing:
-            "Accept-Language": getattr(self.hass.config, "language", "en"),
         }
         if with_auth and self._access_token:
             h["Authorization"] = f"Bearer {self._access_token}"
         return h
 
     def _url(self, path: str) -> str:
-        return f"{self._api_base_url}/{path.lstrip('/')}"
+        path = path.lstrip("/")
+        return f"{self._api_base_url}/{path}"
 
     def _login(self) -> None:
         sess = self._get_session()
@@ -230,30 +243,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             raise UpdateFailed("Login response missing access_token.")
         self._access_token = token
 
-    # ✅ PRIME CALL wie die Web-App
-    def _fetch_detail_or_summary(self) -> Dict[str, Any]:
-        sess = self._get_session()
-        r = sess.get(
-            self._url(f"devices/{self._device_uuid}/detail-or-summary"),
-            headers=self._headers(with_auth=True),
-            timeout=20,
-        )
-
-        if r.status_code in (401, 403):
-            self._access_token = None
-            self._login()
-            r = sess.get(
-                self._url(f"devices/{self._device_uuid}/detail-or-summary"),
-                headers=self._headers(with_auth=True),
-                timeout=20,
-            )
-
-        if r.status_code != 200:
-            raise UpdateFailed(f"Detail-or-summary failed: HTTP {r.status_code} for {r.url}")
-
-        return r.json()
-
-        def _get(self, path: str) -> Dict[str, Any]:
+    def _get(self, path: str) -> Dict[str, Any]:
         sess = self._get_session()
         r = sess.get(
             self._url(path),
@@ -277,36 +267,25 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     def _fetch_web_sequence(self) -> Dict[str, Any]:
         """
-        Mimic the web app sequence that seems to 'activate' or refresh device data.
+        Mimic the web app calls that may 'refresh' device data server-side.
         """
-        # 1) auth/check
         try:
             _ = self._get("auth/check")
         except Exception as err:
             _LOGGER.debug("auth/check failed (ignored): %s", err)
 
-        # 2) app/data
         try:
             _ = self._get("app/data")
         except Exception as err:
             _LOGGER.debug("app/data failed (ignored): %s", err)
 
-        # 3) detail-or-summary
-        detail = {}
+        detail: Dict[str, Any] = {}
         try:
             detail = self._get(f"devices/{self._device_uuid}/detail-or-summary")
         except Exception as err:
             _LOGGER.debug("detail-or-summary failed (ignored): %s", err)
 
-        return detail
-
-    def _fetch_debug(self) -> Dict[str, Any]:
-        """
-        NEW: Run web-sequence first, then fetch debug.
-        """
-        detail = self._fetch_web_sequence()
-
-        # optional debug logging from detail-or-summary
+        # useful trace
         try:
             props = (detail.get("device", {}) or {}).get("properties", {}) or {}
             app_active = (props.get("app_active", {}) or {}).get("value")
@@ -321,46 +300,12 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except Exception:
             pass
 
-        # 4) debug
+        return detail
+
+    def _fetch_debug(self) -> Dict[str, Any]:
+        # run web-sequence first
+        _ = self._fetch_web_sequence()
         return self._get(f"devices/{self._device_uuid}/debug")
-
-        if r.status_code in (401, 403):
-            self._access_token = None
-            self._login()
-            r = sess.get(
-                self._url(f"devices/{self._device_uuid}/debug"),
-                headers=self._headers(with_auth=True),
-                timeout=20,
-            )
-
-        if r.status_code != 200:
-            raise UpdateFailed(f"Debug request failed: HTTP {r.status_code} for {r.url}")
-
-        return r.json()
-
-    def _parse_detail_meta_into_kv(self, payload: Dict[str, Any], kv: Dict[str, Any]) -> None:
-        """
-        Optional: Metadaten (Model/PWA/FW) aus detail-or-summary in unser kv schreiben,
-        damit device_info sicher/sauber ist (und nicht von debug abhängt).
-        """
-        device = payload.get("device") or {}
-        props = device.get("properties") or {}
-
-        def _prop_value(name: str) -> Any:
-            p = props.get(name) or {}
-            return p.get("value")
-
-        # Diese Keys existieren in deinem JSON zuverlässig:
-        model = _prop_value("model_description")
-        sw = _prop_value("base_software_version")
-        pwa = _prop_value("pwa_number")
-
-        if model is not None:
-            kv["manufacturing_information.model"] = model
-        if sw is not None:
-            kv["manufacturing_information.base_software_version"] = sw
-        if pwa is not None:
-            kv["manufacturing_information.pwa"] = pwa
 
     def _parse_debug_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         groups = payload.get("groups", [])
@@ -380,7 +325,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 continue
 
             for item in items:
-                if not isinstance(item, dict) or item.get("type") != "kv":
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") != "kv":
                     continue
 
                 raw_item_key = _normalize_item_key(item.get("key", ""))
@@ -394,6 +341,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return {"kv": kv, "tables": tables}
 
+    # -----------------------------
+    # HA coordinator entrypoint
+    # -----------------------------
     async def _async_update_data(self) -> Dict[str, Any]:
         try:
             return await self.hass.async_add_executor_job(self._sync_update)
@@ -408,15 +358,10 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not self._access_token:
             self._login()
 
-        # ✅ 1) PRIME wie die Web-App
-        detail = self._fetch_detail_or_summary()
+        payload = self._fetch_debug()
+        data = self._parse_debug_json(payload)
 
-        # ✅ 2) dann DEBUG
-        debug = self._fetch_debug()
-        data = self._parse_debug_json(debug)
-
-        # ✅ optional: Meta aus detail ins kv spiegeln (model/sw/pwa)
-        if isinstance(data, dict) and isinstance(data.get("kv"), dict):
-            self._parse_detail_meta_into_kv(detail, data["kv"])
+        if not isinstance(data, dict) or "kv" not in data:
+            raise UpdateFailed("Parsed data invalid")
 
         return data
