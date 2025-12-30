@@ -135,6 +135,22 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
         # unique id must be stable and per-device
         self._attr_unique_id = f"{device_uuid}_{description.key}".lower()
 
+    async def async_added_to_hass(self) -> None:
+        """Populate an initial state immediately after entities are added.
+
+        Without this, the first coordinator refresh can happen before sensors
+        are registered as listeners, causing states to stay 'unknown' until the
+        next polling interval.
+        """
+        await super().async_added_to_hass()
+        try:
+            self.update_from_data(self.coordinator.data or {})
+        except Exception:
+            # Don't fail entity setup if data parsing is temporarily inconsistent
+            self._attr_native_value = None
+        self.async_write_ha_state()
+
+
         # ensure stable entity_id suggestion (sensor.iqua_<key>)
         key = description.key.lower()
         if not key.startswith("iqua_"):
@@ -174,25 +190,9 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
         )
 
     @callback
-    
-    async def async_added_to_hass(self) -> None:
-        """Populate state immediately when the entity is added.
-
-        After a Home Assistant restart, the coordinator may already have fresh data
-        from the entry's first refresh before entities are created. We proactively
-        apply the current coordinator data here so entities don't stay 'unknown'
-        until the next scheduled poll.
-        """
-        await super().async_added_to_hass()
-        try:
-            self.update_from_data(self.coordinator.data or {})
-        except Exception:  # keep entity setup resilient
-            _LOGGER.debug("Failed to seed initial state for %s", self.entity_id, exc_info=True)
-    @callback
     def _handle_coordinator_update(self) -> None:
         self.update_from_data(self.coordinator.data or {})
         self.async_write_ha_state()
-
 
     @abstractmethod
     def update_from_data(self, data: Dict[str, Any]) -> None:
@@ -865,14 +865,5 @@ async def async_setup_entry(
             "program.regen_time_remaining",
         ),
     ]
-
-    
-    # Seed initial values from the already-fetched coordinator data (first refresh)
-    # so entities don't remain 'unknown' until the next scheduled update.
-    try:
-        for ent in sensors:
-            ent.update_from_data(coordinator.data or {})
-    except Exception:
-        _LOGGER.debug("Failed to seed initial sensor values", exc_info=True)
 
     async_add_entities(sensors)
