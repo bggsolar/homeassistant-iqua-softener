@@ -188,10 +188,11 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
             self.update_from_data(self.coordinator.data or {})
         except Exception:  # keep entity setup resilient
             _LOGGER.debug("Failed to seed initial state for %s", self.entity_id, exc_info=True)
-
-def _handle_coordinator_update(self) -> None:
+    @callback
+    def _handle_coordinator_update(self) -> None:
         self.update_from_data(self.coordinator.data or {})
         self.async_write_ha_state()
+
 
     @abstractmethod
     def update_from_data(self, data: Dict[str, Any]) -> None:
