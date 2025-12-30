@@ -253,13 +253,76 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return r.json()
 
-    def _fetch_debug(self) -> Dict[str, Any]:
+        def _get(self, path: str) -> Dict[str, Any]:
         sess = self._get_session()
         r = sess.get(
-            self._url(f"devices/{self._device_uuid}/debug"),
+            self._url(path),
             headers=self._headers(with_auth=True),
             timeout=20,
         )
+
+        if r.status_code in (401, 403):
+            self._access_token = None
+            self._login()
+            r = sess.get(
+                self._url(path),
+                headers=self._headers(with_auth=True),
+                timeout=20,
+            )
+
+        if r.status_code != 200:
+            raise UpdateFailed(f"GET failed: HTTP {r.status_code} for {r.url}")
+
+        return r.json()
+
+    def _fetch_web_sequence(self) -> Dict[str, Any]:
+        """
+        Mimic the web app sequence that seems to 'activate' or refresh device data.
+        """
+        # 1) auth/check
+        try:
+            _ = self._get("auth/check")
+        except Exception as err:
+            _LOGGER.debug("auth/check failed (ignored): %s", err)
+
+        # 2) app/data
+        try:
+            _ = self._get("app/data")
+        except Exception as err:
+            _LOGGER.debug("app/data failed (ignored): %s", err)
+
+        # 3) detail-or-summary
+        detail = {}
+        try:
+            detail = self._get(f"devices/{self._device_uuid}/detail-or-summary")
+        except Exception as err:
+            _LOGGER.debug("detail-or-summary failed (ignored): %s", err)
+
+        return detail
+
+    def _fetch_debug(self) -> Dict[str, Any]:
+        """
+        NEW: Run web-sequence first, then fetch debug.
+        """
+        detail = self._fetch_web_sequence()
+
+        # optional debug logging from detail-or-summary
+        try:
+            props = (detail.get("device", {}) or {}).get("properties", {}) or {}
+            app_active = (props.get("app_active", {}) or {}).get("value")
+            app_active_updated = (props.get("app_active", {}) or {}).get("updated_at")
+            online_updated = (props.get("_internal_is_online", {}) or {}).get("updated_at")
+            _LOGGER.debug(
+                "detail-or-summary: app_active=%s (updated_at=%s), online_updated_at=%s",
+                app_active,
+                app_active_updated,
+                online_updated,
+            )
+        except Exception:
+            pass
+
+        # 4) debug
+        return self._get(f"devices/{self._device_uuid}/debug")
 
         if r.status_code in (401, 403):
             self._access_token = None
