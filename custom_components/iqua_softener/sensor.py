@@ -27,15 +27,14 @@ _LOGGER = logging.getLogger(__name__)
 
 # ---------- Helpers ----------
 
-def _to_datetime(v: Any) -> Optional[datetime]:
-    s = _as_str(v)
+def _to_datetime(raw: Any):
+    s = _as_str(raw)
     if not s:
         return None
-    try:
-        # akzeptiert z.B. "2025-12-30T13:09:41Z"
-        return dt_util.parse_datetime(s)
-    except Exception:
+    dt = dt_util.parse_datetime(s)
+    if dt is None:
         return None
+    return dt_util.as_utc(dt) if dt.tzinfo else dt_util.as_utc(dt.replace(tzinfo=dt_util.UTC))
 
 def _as_str(v: Any) -> Optional[str]:
     if v is None:
@@ -47,9 +46,18 @@ def _as_str(v: Any) -> Optional[str]:
 def _to_float(v: Any) -> Optional[float]:
     if v is None:
         return None
+
     s = str(v).strip()
-    # common junk from API strings
-    s = s.replace("%", "").replace("Days", "").replace("Day", "").strip()
+
+    # normalize decimal comma -> dot
+    s = s.replace(",", ".")
+
+    # strip common suffixes/units from API or UI-localized strings
+    for junk in ("%", "Days", "Day", "Tage", "Tag", " d", "d"):
+        s = s.replace(junk, "")
+
+    s = s.strip()
+
     try:
         return float(s)
     except Exception:
