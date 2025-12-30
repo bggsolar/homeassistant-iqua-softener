@@ -152,7 +152,7 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
 
 
         # ensure stable entity_id suggestion (sensor.iqua_<key>)
-        key = description.key.lower()
+        key = self.entity_description.key.lower()
         if not key.startswith("iqua_"):
             key = f"iqua_{key}"
         self._attr_suggested_object_id = key
