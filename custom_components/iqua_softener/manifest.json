@@ -1,7 +1,7 @@
 {
   "domain": "iqua_softener",
   "name": "iQua Softener",
-  "version": "2.4.0-fix1",
+  "version": "2.4.0-fix2",
   "documentation": "https://github.com/bggsolar/homeassistant-iqua-softener",
   "requirements": [
     "requests>=2.31.0"

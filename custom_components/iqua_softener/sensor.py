@@ -141,6 +141,48 @@ def _round(v: Optional[float], ndigits: int) -> Optional[float]:
         return v
 
 
+def _kv_first_value(
+    kv: Dict[str, Any],
+    *,
+    exact_keys: tuple[str, ...] = (),
+    suffixes: tuple[str, ...] = (),
+    contains: tuple[str, ...] = (),
+) -> Any:
+    """Return first non-None value found in kv.
+
+    We try, in order:
+      1) exact key matches
+      2) key endswith any suffix (case-insensitive)
+      3) key contains any substring (case-insensitive)
+    """
+    if not isinstance(kv, dict):
+        return None
+
+    # 1) Exact keys
+    for k in exact_keys:
+        if k in kv and kv.get(k) is not None:
+            return kv.get(k)
+
+    if not (suffixes or contains):
+        return None
+
+    # Prepare lowercase view once
+    kv_items = list(kv.items())
+    for raw_k, raw_v in kv_items:
+        if raw_v is None:
+            continue
+        lk = str(raw_k).lower()
+        # 2) Suffix match
+        for suf in suffixes:
+            if lk.endswith(str(suf).lower()):
+                return raw_v
+        # 3) Contains match
+        for sub in contains:
+            if str(sub).lower() in lk:
+                return raw_v
+    return None
+
+
 def _salt_monitor_to_percent(raw: Any) -> Optional[float]:
     """Salt monitor level seems 0..50 where 50 == 100%."""
     f = _to_float(raw)
@@ -321,20 +363,40 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
             self._attr_native_value = None
             return
 
-        total_l = _treated_capacity_total_l(
-            kv.get("configuration.operating_capacity_grains")
-            or kv.get("configuration_information.operating_capacity_grains")
-            or kv.get("operating_capacity_grains"),
-            kv.get("program.hardness")
-            or kv.get("program.hardness_grains")
-            or kv.get("hardness_grains"),
+        op_cap_raw = _kv_first_value(
+            kv,
+            exact_keys=(
+                # historical / earlier mappings
+                "configuration.operating_capacity_grains",
+                "configuration_information.operating_capacity_grains",
+                "program.operating_capacity_grains",
+                "capacity.operating_capacity_grains",
+                "operating_capacity_grains",
+            ),
+            # safety-net: the debug endpoint varies a lot between devices/accounts
+            suffixes=("operating_capacity_grains",),
+            contains=("operating_capacity_grains",),
         )
+
+        hardness_raw = _kv_first_value(
+            kv,
+            exact_keys=(
+                "program.hardness_grains",
+                "program.hardness",
+                "hardness_grains",
+                "hardness",
+            ),
+            suffixes=("hardness_grains", "hardness"),
+            contains=("hardness_grains",),
+        )
+
+        total_l = _treated_capacity_total_l(op_cap_raw, hardness_raw)
         if total_l is None:
             _LOGGER.debug(
                 "Calculated capacity (%s) missing operating_capacity_grains/hardness: op_cap=%s hardness=%s",
                 self._mode,
-                kv.get("configuration.operating_capacity_grains") or kv.get("operating_capacity_grains"),
-                kv.get("program.hardness") or kv.get("hardness_grains"),
+                op_cap_raw,
+                hardness_raw,
             )
             self._attr_native_value = None
             return
