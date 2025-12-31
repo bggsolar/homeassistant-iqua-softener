@@ -404,7 +404,18 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
         if self._mode == "total":
             val = total_l
         else:
-            pct = _percent_from_api(kv.get("capacity.capacity_remaining_percent") or kv.get("capacity_remaining_percent"))
+            pct_raw = (
+                kv.get("capacity.capacity_remaining_percent")
+                or kv.get("status.capacity_remaining_percent")
+                or kv.get("detail.capacity_remaining_percent")
+                or kv.get("capacity_remaining_percent")
+            )
+            if pct_raw is None:
+                for k, v in kv.items():
+                    if isinstance(k, str) and k.endswith(".capacity_remaining_percent"):
+                        pct_raw = v
+                        break
+            pct = _percent_from_api(pct_raw)
             if pct is None:
                 _LOGGER.debug(
                     "Calculated capacity (%s) missing remaining percent: raw=%s",
