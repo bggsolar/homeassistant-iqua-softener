@@ -131,8 +131,13 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
 
     @property
     def available(self) -> bool:
-        # If the coordinator updates successfully, keep entities available.
-        # Missing keys will show as 'unknown' instead of 'unavailable'.
+        """Keep sensors available if we have any data.
+
+        We prefer showing 'unknown' for missing keys over 'unavailable', and we keep
+        the last known values visible even if a later update fails.
+        """
+        if isinstance(getattr(self.coordinator, "data", None), dict):
+            return True
         return bool(self.coordinator.last_update_success)
 
     @property
@@ -152,16 +157,6 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
                 self._handle_coordinator_update()
         except Exception:
             # Don't break platform setup due to a single bad value.
-            pass
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        # Ensure state is set at startup (avoids unknown until next poll)
-        try:
-            if isinstance(self.coordinator.data, dict):
-                self.update_from_data(self.coordinator.data)
-                self.async_write_ha_state()
-        except Exception:
             pass
 
     @property
