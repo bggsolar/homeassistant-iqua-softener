@@ -129,6 +129,31 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
         except Exception:
             pass
 
+    @property
+    def available(self) -> bool:
+        # If the coordinator updates successfully, keep entities available.
+        # Missing keys will show as 'unknown' instead of 'unavailable'.
+        return bool(self.coordinator.last_update_success)
+
+    @property
+    def state_class(self):
+        # Guard against non-numeric values being reported as numeric sensors.
+        sc = getattr(self.entity_description, "state_class", None)
+        if sc and not isinstance(self.native_value, (int, float)):
+            return None
+        return sc
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # If the coordinator already has data (e.g. after startup first_refresh),
+        # initialize the state immediately so we don't stay 'unknown' until the next interval.
+        try:
+            if getattr(self.coordinator, "data", None):
+                self._handle_coordinator_update()
+        except Exception:
+            # Don't break platform setup due to a single bad value.
+            pass
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         # Ensure state is set at startup (avoids unknown until next poll)
@@ -171,9 +196,7 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
 
     @abstractmethod
     def update_from_data(self, data: Dict[str, Any]) -> None:
-        ...
-
-
+        raise NotImplementedError
 class IquaKVSensor(IquaBaseSensor):
     """Reads a canonical kv key from coordinator.data['kv'][canonical_kv_key]."""
 
