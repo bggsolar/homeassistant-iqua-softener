@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 
 from homeassistant import config_entries, core
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 
-from .const import DOMAIN, CONF_EMAIL, CONF_PASSWORD, CONF_DEVICE_UUID
+from .const import (
+    DOMAIN,
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    CONF_DEVICE_UUID,
+)
 from .coordinator import IquaSoftenerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,62 +18,97 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[str] = ["sensor"]
 
 
-async def async_setup_entry(
-    hass: core.HomeAssistant, entry: config_entries.ConfigEntry
-) -> bool:
-    """Set up iqua_softener from a config entry."""
+def _get_merged_entry_data(entry: config_entries.ConfigEntry) -> dict:
+    """Merge entry.data + entry.options (options override data)."""
+    merged = dict(entry.data)
+    if entry.options:
+        merged.update(entry.options)
+    return merged
+
+
+async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
-    hass_data = dict(entry.data)
-    if entry.options:
-        hass_data.update(entry.options)
+    merged = _get_merged_entry_data(entry)
 
-    # Required config (stored by config_flow)
-    try:
-        email = hass_data[CONF_EMAIL]
-        password = hass_data[CONF_PASSWORD]
-        device_uuid = hass_data[CONF_DEVICE_UUID]
-    except KeyError as err:
-        raise ConfigEntryNotReady(f"Missing config value: {err}") from err
+    # Backward compatible aliases (older versions may have used username/device_id etc.)
+    # Feel free to extend if you had other historic keys.
+    email = merged.get(CONF_EMAIL) or merged.get("username") or merged.get("user") or merged.get("mail")
+    password = merged.get(CONF_PASSWORD) or merged.get("pass") or merged.get("pwd")
+    device_uuid = merged.get(CONF_DEVICE_UUID) or merged.get("device_id") or merged.get("device_serial_number")
+
+    # If options contain the keys but data doesn't -> migrate into entry.data for stability
+    # (Optional, but helps avoid future issues)
+    migrate_payload = {}
+    if CONF_EMAIL not in entry.data and merged.get(CONF_EMAIL):
+        migrate_payload[CONF_EMAIL] = merged[CONF_EMAIL]
+    if CONF_PASSWORD not in entry.data and merged.get(CONF_PASSWORD):
+        migrate_payload[CONF_PASSWORD] = merged[CONF_PASSWORD]
+    if CONF_DEVICE_UUID not in entry.data and merged.get(CONF_DEVICE_UUID):
+        migrate_payload[CONF_DEVICE_UUID] = merged[CONF_DEVICE_UUID]
+
+    if migrate_payload:
+        new_data = dict(entry.data)
+        new_data.update(migrate_payload)
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        # refresh merged after migration
+        merged = _get_merged_entry_data(entry)
+        email = merged.get(CONF_EMAIL) or email
+        password = merged.get(CONF_PASSWORD) or password
+        device_uuid = merged.get(CONF_DEVICE_UUID) or device_uuid
+
+    # Hard validation: these are required
+    missing = []
+    if not email:
+        missing.append(CONF_EMAIL)
+    if not password:
+        missing.append(CONF_PASSWORD)
+    if not device_uuid:
+        missing.append(CONF_DEVICE_UUID)
+
+    if missing:
+        # Not a temporary condition -> ConfigEntryError (no endless retries)
+        raise ConfigEntryError(
+            f"Missing required configuration keys in config entry: {', '.join(missing)}. "
+            "Please remove the iQua Softener integration and add it again."
+        )
 
     coordinator = IquaSoftenerCoordinator(
         hass,
-        email=email,
-        password=password,
-        device_uuid=device_uuid,
+        email=str(email),
+        password=str(password),
+        device_uuid=str(device_uuid),
     )
 
-    # IMPORTANT:
-    # Fetch once immediately at startup so sensors have values right away.
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception as err:
+        # Temporary API/network issues -> retry
         _LOGGER.warning("iQua Softener not ready yet: %s", err)
         raise ConfigEntryNotReady from err
 
-    hass_data["coordinator"] = coordinator
-    hass_data["unsub_options_update_listener"] = entry.add_update_listener(
-        options_update_listener
-    )
-    hass.data[DOMAIN][entry.entry_id] = hass_data
+    # Store runtime objects in hass.data (but don't rely on hass.data for config values)
+    hass.data[DOMAIN][entry.entry_id] = {
+        "coordinator": coordinator,
+        CONF_DEVICE_UUID: str(device_uuid),
+        "unsub_options_update_listener": entry.add_update_listener(options_update_listener),
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
-async def options_update_listener(
-    hass: core.HomeAssistant, entry: config_entries.ConfigEntry
-) -> None:
+async def options_update_listener(hass: core.HomeAssistant, entry: config_entries.ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(
-    hass: core.HomeAssistant, entry: config_entries.ConfigEntry
-) -> bool:
+async def async_unload_entry(hass: core.HomeAssistant, entry: config_entries.ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    if entry.entry_id in hass.data.get(DOMAIN, {}):
-        hass.data[DOMAIN][entry.entry_id].get("unsub_options_update_listener", lambda: None)()
+    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    unsub = entry_data.get("unsub_options_update_listener")
+    if callable(unsub):
+        unsub()
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)

@@ -11,18 +11,15 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 _LOGGER = logging.getLogger(__name__)
 
-# Polling interval
-UPDATE_INTERVAL = timedelta(minutes=2)
+# Polling interval: 15 minutes
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
 DEFAULT_USER_AGENT = "Mozilla/5.0 (HomeAssistant iQuaSoftener)"
 
 
-# -----------------------------
-# Canonical mapping
 # (group_key, item_key) -> canonical kv key
-# -----------------------------
 CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     # ---- Customer / metadata ----
     ("customer", "time_message_received"): "customer.time_message_received",
@@ -93,7 +90,6 @@ CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     ("rock_removed", "since_regen_rock_removed"): "rock_removed.since_regen_rock_removed",
 
     # ---- Regenerations (API bug!) ----
-    # In the API JSON, this item has key "total_rock_removed" but label "Time in Operation (Days)"
     ("regenerations", "total_rock_removed"): "regenerations.time_in_operation_days",
     ("regenerations", "total_regens"): "regenerations.total_regens",
     ("regenerations", "manual_regens"): "regenerations.manual_regens",
@@ -162,12 +158,11 @@ def _parse_tables(groups: list[Dict[str, Any]]) -> Dict[str, Any]:
                 "rows": table.get("rows", []),
                 "group": gkey,
             }
-
     return tables
 
 
 class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """Coordinator to fetch iQua debug endpoint and normalize KV + table data."""
+    """Fetch + normalize device data."""
 
     def __init__(
         self,
@@ -215,7 +210,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     def _url(self, path: str) -> str:
         return f"{self._api_base_url}/{path.lstrip('/')}"
 
-
     def _login(self) -> None:
         sess = self._get_session()
         r = sess.post(
@@ -250,12 +244,12 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return r.json()
 
     def _fetch_web_sequence(self) -> None:
-        """Mimic web app calls that seem to trigger server-side refreshes."""
-        for p in ("app/data", "auth/check", f"devices/{self._device_uuid}/detail-or-summary"):
+        """Mimic web app calls that may trigger server-side refresh."""
+        for path in ("app/data", "auth/check", f"devices/{self._device_uuid}/detail-or-summary"):
             try:
-                _ = self._get(p)
-            except Exception as err:
-                _LOGGER.debug("web-sequence %s failed (ignored): %s", p, err)
+                self._get(path)
+            except Exception:
+                _LOGGER.debug("Pre-call failed (ignored): %s", path)
 
     def _fetch_debug(self) -> Dict[str, Any]:
         self._fetch_web_sequence()
@@ -272,7 +266,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         for g in groups:
             if not isinstance(g, dict):
                 continue
-
             gkey = _normalize_group_key(g.get("key", ""))
             items = g.get("items", [])
             if not isinstance(items, list):
@@ -281,24 +274,18 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             for item in items:
                 if not isinstance(item, dict) or item.get("type") != "kv":
                     continue
-
                 raw_item_key = _normalize_item_key(item.get("key", ""))
                 value = _extract_item_value(item)
 
-                canonical = CANONICAL_KV_MAP.get((gkey, raw_item_key))
-                if canonical is None:
-                    canonical = f"{gkey}.{raw_item_key}"
-
+                canonical = CANONICAL_KV_MAP.get((gkey, raw_item_key)) or f"{gkey}.{raw_item_key}"
                 kv[canonical] = value
 
-        # Alias: time_message_received can appear under different groups in some accounts
-        if kv.get("customer.time_message_received") is None:
-            candidates = {k: v for k, v in kv.items() if k.endswith(".time_message_received") and v is not None}
-            if candidates:
-                # deterministic: take first key sorted
-                pick = sorted(candidates.keys())[0]
-                kv["customer.time_message_received"] = candidates[pick]
-                _LOGGER.debug("time_message_received candidates: %s", {"customer.time_message_received": kv["customer.time_message_received"]})
+        # Alias for robustness (timestamp appears under different groups for some accounts)
+        if "customer.time_message_received" not in kv:
+            for k in list(kv.keys()):
+                if k.endswith(".time_message_received") and kv.get(k) is not None:
+                    kv["customer.time_message_received"] = kv[k]
+                    break
 
         return {"kv": kv, "tables": tables}
 

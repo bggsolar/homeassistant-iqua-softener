@@ -6,5 +6,5 @@ CONF_EMAIL = "email"
 CONF_PASSWORD = "password"
 CONF_DEVICE_UUID = "device_uuid"
 
-# Used as unit string for flow rate (liters per minute)
+# Unit strings (Home Assistant shows these as text units)
 VOLUME_FLOW_RATE_LITERS_PER_MINUTE = "L/min"
