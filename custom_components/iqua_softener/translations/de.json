@@ -117,6 +117,18 @@
       },
       "regen_time_remaining": {
         "name": "Restzeit Regeneration"
+      },
+      "hardness_grains_per_gal": {
+        "name": "Wasserhärte"
+      },
+      "operating_capacity_grains": {
+        "name": "Betriebskapazität"
+      },
+      "calculated_treated_capacity_total_l": {
+        "name": "Behandelte Wasserkapazität gesamt (berechnet)"
+      },
+      "calculated_treated_capacity_remaining_l": {
+        "name": "Restkapazität behandelt (berechnet)"
       }
     }
   }

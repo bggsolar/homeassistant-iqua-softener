@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=2)
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -44,6 +44,10 @@ CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     ("configuration_information", "turbine_revolutions"): "configuration.turbine_revs_per_liter",
     ("configuration_information", "valve_type"): "configuration.valve_type",
     ("configuration_information", "efficiency_mode"): "configuration.efficiency_mode",
+
+    # operating capacity (grains)
+    ("configuration_information", "operating_capacity"): "configuration.operating_capacity_grains",
+    ("configuration_information", "operating_capacity_grains"): "configuration.operating_capacity_grains",
 
     # ---- Program settings ----
     ("program_settings", "controller_time"): "program.controller_time",

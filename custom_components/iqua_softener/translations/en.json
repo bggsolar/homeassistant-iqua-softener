@@ -117,6 +117,18 @@
       },
       "regen_time_remaining": {
         "name": "Regen time remaining"
+      },
+      "hardness_grains_per_gal": {
+        "name": "Hardness"
+      },
+      "operating_capacity_grains": {
+        "name": "Operating capacity"
+      },
+      "calculated_treated_capacity_total_l": {
+        "name": "Treated water capacity (calculated)"
+      },
+      "calculated_treated_capacity_remaining_l": {
+        "name": "Remaining treated water (calculated)"
       }
     }
   }

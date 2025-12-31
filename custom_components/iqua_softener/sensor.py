@@ -105,6 +105,33 @@ def _to_float(v: Any) -> Optional[float]:
         return None
 
 
+
+def _percent_from_api(raw: Any) -> Optional[float]:
+    """Some API values are scaled by 10 (e.g. 765 == 76.5%)."""
+    f = _to_float(raw)
+    if f is None:
+        return None
+    # Common pattern: 0..1000 where 1000 == 100.0
+    if f > 100:
+        f = f / 10.0
+    # guard
+    if f < 0:
+        f = 0
+    if f > 100:
+        # still too high? give up
+        return None
+    return f
+
+
+def _treated_capacity_total_l(operating_capacity_grains: Any, hardness_grains: Any) -> Optional[float]:
+    """Compute total treatable water in liters from capacity (grains) and hardness (grains/gal)."""
+    cap = _to_float(operating_capacity_grains)
+    hard = _to_float(hardness_grains)
+    if cap is None or hard is None or hard <= 0:
+        return None
+    gallons = cap / hard
+    liters = gallons * 3.785412
+    return liters
 def _round(v: Optional[float], ndigits: int) -> Optional[float]:
     if v is None:
         return None
@@ -271,6 +298,49 @@ class IquaTimestampSensor(IquaBaseSensor):
         self._attr_native_value = dt
 
 
+
+class IquaCalculatedCapacitySensor(IquaBaseSensor):
+    """Calculated capacities in liters based on operating capacity and hardness."""
+
+    def __init__(
+        self,
+        coordinator: IquaSoftenerCoordinator,
+        device_uuid: str,
+        description: SensorEntityDescription,
+        *,
+        mode: str,
+        round_digits: int = 0,
+    ) -> None:
+        super().__init__(coordinator, device_uuid, description)
+        self._mode = mode  # "total" or "remaining"
+        self._round_digits = round_digits
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        kv = data.get("kv", {})
+        if not isinstance(kv, dict):
+            self._attr_native_value = None
+            return
+
+        total_l = _treated_capacity_total_l(
+            kv.get("configuration.operating_capacity_grains"),
+            kv.get("program.hardness"),
+        )
+        if total_l is None:
+            self._attr_native_value = None
+            return
+
+        if self._mode == "total":
+            val = total_l
+        else:
+            pct = _percent_from_api(kv.get("capacity.capacity_remaining_percent"))
+            if pct is None:
+                self._attr_native_value = None
+                return
+            val = total_l * (pct / 100.0)
+
+        self._attr_native_value = _round(val, self._round_digits)
+
+
 class IquaUsagePatternSensor(IquaBaseSensor):
     """
     Weekly table row:
@@ -382,6 +452,7 @@ async def async_setup_entry(
                 state_class=SensorStateClass.MEASUREMENT,
             ),
             "capacity.capacity_remaining_percent",
+            transform=_percent_from_api,
             round_digits=1,
         ),
         IquaKVSensor(
