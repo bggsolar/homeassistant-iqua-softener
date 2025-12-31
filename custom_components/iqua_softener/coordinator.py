@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=2)
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -250,13 +250,26 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return r.json()
 
-    def _fetch_web_sequence(self) -> None:
-        """Mimic web app calls that may trigger server-side refresh."""
-        for path in ("app/data", "auth/check", f"devices/{self._device_uuid}/detail-or-summary"):
+    def _fetch_web_sequence(self) -> Dict[str, Any]:
+        """Mimic web app calls that may trigger server-side refresh.
+
+        Returns the *detail-or-summary* response (or {} on failure) so we can
+        merge properties that are not present in /debug for some accounts.
+        """
+
+        # These two are observed during normal web navigation.
+        for path in ("app/data", "auth/check"):
             try:
                 self._get(path)
             except Exception:
                 _LOGGER.debug("Pre-call failed (ignored): %s", path)
+
+        # detail-or-summary contains many authoritative properties.
+        try:
+            return self._get(f"devices/{self._device_uuid}/detail-or-summary")
+        except Exception:
+            _LOGGER.debug("Pre-call failed (ignored): devices/<id>/detail-or-summary")
+            return {}
 
     def _fetch_debug(self) -> Dict[str, Any]:
         # 1) Trigger "live" activity (observed in browser) – this often refreshes controller_time etc.
@@ -266,10 +279,51 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.debug("devices/<id>/live failed (ignored): %s", err)
 
         # 2) Mimic web-app sequence (auth/check, app/data, detail-or-summary)
-        self._fetch_web_sequence()
+        detail = self._fetch_web_sequence()
 
         # 3) Finally fetch debug payload
-        return self._get(f"devices/{self._device_uuid}/debug")
+        debug_payload = self._get(f"devices/{self._device_uuid}/debug")
+        return {"debug": debug_payload, "detail": detail}
+
+    def _merge_detail_into_kv(self, kv: Dict[str, Any], detail: Dict[str, Any]) -> None:
+        """Fill missing KV entries from detail-or-summary.
+
+        Some installations do not receive certain configuration values in
+        /debug (notably operating_capacity_grains). detail-or-summary has them
+        under device.properties.
+        """
+        if not isinstance(detail, dict):
+            return
+
+        device = detail.get("device") or {}
+        props = (device.get("properties") or {}) if isinstance(device, dict) else {}
+        if not isinstance(props, dict):
+            return
+
+        def _prop_value(name: str) -> Any:
+            p = props.get(name) or {}
+            if isinstance(p, dict):
+                return p.get("value")
+            return None
+
+        # ---- Values needed for calculated capacity sensors ----
+        # Use the canonical keys expected by sensor.py.
+        if kv.get("configuration.operating_capacity_grains") is None:
+            op = _prop_value("operating_capacity_grains")
+            if op is not None:
+                kv["configuration.operating_capacity_grains"] = op
+
+        if kv.get("program.hardness_grains") is None:
+            hg = _prop_value("hardness_grains")
+            if hg is not None:
+                kv["program.hardness_grains"] = hg
+
+        # Resin load is available in debug for many devices, but we can also
+        # pick it up here if needed later.
+        if kv.get("configuration.resin_load_liters") is None:
+            rl = _prop_value("resin_load")
+            if rl is not None:
+                kv["configuration.resin_load_liters"] = rl
 
     def _parse_debug_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         groups = payload.get("groups", [])
@@ -319,8 +373,15 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not self._access_token:
             self._login()
 
-        payload = self._fetch_debug()
-        data = self._parse_debug_json(payload)
+        payloads = self._fetch_debug()
+        debug_payload = payloads.get("debug") or {}
+        detail_payload = payloads.get("detail") or {}
+
+        data = self._parse_debug_json(debug_payload)
+        try:
+            self._merge_detail_into_kv(data.get("kv", {}), detail_payload)
+        except Exception as err:
+            _LOGGER.debug("detail-or-summary merge failed (ignored): %s", err)
 
         if not isinstance(data, dict) or "kv" not in data:
             raise UpdateFailed("Parsed data invalid")
