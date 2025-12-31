@@ -501,9 +501,9 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="water_today_l",
                 translation_key="water_today_l",
-                device_class=SensorDeviceClass.WATER,
+                device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
-                state_class=SensorStateClass.TOTAL_INCREASING,
+                state_class=SensorStateClass.MEASUREMENT,
             ),
             "water_usage.water_today",
             round_digits=1,
@@ -514,7 +514,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="average_daily_use_l",
                 translation_key="average_daily_use_l",
-                device_class=SensorDeviceClass.WATER,
+                device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
@@ -540,13 +540,38 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="treated_water_available_l",
                 translation_key="treated_water_available_l",
-                device_class=SensorDeviceClass.WATER,
+                device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
             "water_usage.treated_water_left",
             round_digits=1,
         ),
+
+        # --- Calculated remaining capacity (liters) ---
+        IquaCalculatedCapacitySensor(
+            coordinator,
+            device_uuid,
+            SensorEntityDescription(
+                key="calculated_treated_capacity_remaining_l",
+                translation_key="calculated_treated_capacity_remaining_l",
+                native_unit_of_measurement=UnitOfVolume.LITERS,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:water-check",
+            ),
+        ),
+        IquaCalculatedCapacitySensor(
+            coordinator,
+            device_uuid,
+            SensorEntityDescription(
+                key="calculated_treated_capacity_total_l",
+                translation_key="calculated_treated_capacity_total_l",
+                native_unit_of_measurement=UnitOfVolume.LITERS,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:water",
+            ),
+        ),
+
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -581,7 +606,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="daily_water_usage_avg_pattern_l",
                 translation_key="daily_water_usage_avg_pattern_l",
-                device_class=SensorDeviceClass.WATER,
+                device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-week",
@@ -597,7 +622,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="daily_water_usage_reserved_pattern_l",
                 translation_key="daily_water_usage_reserved_pattern_l",
-                device_class=SensorDeviceClass.WATER,
+                device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-week",
