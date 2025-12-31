@@ -45,6 +45,9 @@ CANONICAL_KV_MAP: Dict[Tuple[str, str], str] = {
     ("configuration_information", "valve_type"): "configuration.valve_type",
     ("configuration_information", "efficiency_mode"): "configuration.efficiency_mode",
 
+    # ---- Program settings (capacity) ----
+    ("program_settings", "operating_capacity_grains"): "configuration.operating_capacity_grains",
+
     # operating capacity (grains)
     ("configuration_information", "operating_capacity"): "configuration.operating_capacity_grains",
     ("configuration_information", "operating_capacity_grains"): "configuration.operating_capacity_grains",
