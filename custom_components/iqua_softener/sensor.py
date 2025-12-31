@@ -559,6 +559,7 @@ async def async_setup_entry(
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:water-check",
             ),
+            mode="remaining",
         ),
         IquaCalculatedCapacitySensor(
             coordinator,
@@ -570,6 +571,7 @@ async def async_setup_entry(
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:water",
             ),
+            mode="total",
         ),
 
         IquaKVSensor(
