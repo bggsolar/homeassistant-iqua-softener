@@ -322,18 +322,33 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
             return
 
         total_l = _treated_capacity_total_l(
-            kv.get("configuration.operating_capacity_grains"),
-            kv.get("program.hardness"),
+            kv.get("configuration.operating_capacity_grains")
+            or kv.get("configuration_information.operating_capacity_grains")
+            or kv.get("operating_capacity_grains"),
+            kv.get("program.hardness")
+            or kv.get("program.hardness_grains")
+            or kv.get("hardness_grains"),
         )
         if total_l is None:
+            _LOGGER.debug(
+                "Calculated capacity (%s) missing operating_capacity_grains/hardness: op_cap=%s hardness=%s",
+                self._mode,
+                kv.get("configuration.operating_capacity_grains") or kv.get("operating_capacity_grains"),
+                kv.get("program.hardness") or kv.get("hardness_grains"),
+            )
             self._attr_native_value = None
             return
 
         if self._mode == "total":
             val = total_l
         else:
-            pct = _percent_from_api(kv.get("capacity.capacity_remaining_percent"))
+            pct = _percent_from_api(kv.get("capacity.capacity_remaining_percent") or kv.get("capacity_remaining_percent"))
             if pct is None:
+                _LOGGER.debug(
+                    "Calculated capacity (%s) missing remaining percent: raw=%s",
+                    self._mode,
+                    kv.get("capacity.capacity_remaining_percent") or kv.get("capacity_remaining_percent"),
+                )
                 self._attr_native_value = None
                 return
             val = total_l * (pct / 100.0)
