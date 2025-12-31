@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=15)
+UPDATE_INTERVAL = timedelta(minutes=2)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -252,7 +252,16 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 _LOGGER.debug("Pre-call failed (ignored): %s", path)
 
     def _fetch_debug(self) -> Dict[str, Any]:
+        # 1) Trigger "live" activity (observed in browser) – this often refreshes controller_time etc.
+        try:
+            _ = self._get(f"devices/{self._device_uuid}/live")
+        except Exception as err:
+            _LOGGER.debug("devices/<id>/live failed (ignored): %s", err)
+
+        # 2) Mimic web-app sequence (auth/check, app/data, detail-or-summary)
         self._fetch_web_sequence()
+
+        # 3) Finally fetch debug payload
         return self._get(f"devices/{self._device_uuid}/debug")
 
     def _parse_debug_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
