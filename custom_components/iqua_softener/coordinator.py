@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Any, Dict, Optional, Tuple
 
 import requests
@@ -9,16 +9,17 @@ import requests
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-_STORAGE_VERSION = 1
+_STORAGE_VERSION = 2
 _STORAGE_KEY_FMT = f"{DOMAIN}_baseline_{'{'}device_uuid{'}'}"
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=2)
+UPDATE_INTERVAL = timedelta(minutes=5)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -210,6 +211,13 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._baseline_treated_total_l: Optional[float] = None
         self._regen_active_prev: bool = False
 
+        # Persisted derived-metrics state
+        self._last_regen_end: Optional[datetime] = None
+        self._regen_end_history: list[datetime] = []
+        self._daily_usage_history: list[dict[str, Any]] = []  # [{'date': 'YYYY-MM-DD', 'liters': float}]
+        self._last_water_today_l: Optional[float] = None
+        self._last_water_today_date: Optional[str] = None
+
 
     async def async_load_baseline(self) -> None:
         """Load persisted baseline for treated water counter."""
@@ -218,8 +226,43 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._baseline_loaded = True
         try:
             data = await self._baseline_store.async_load()
-            if isinstance(data, dict) and data.get("baseline_treated_total_l") is not None:
-                self._baseline_treated_total_l = float(data["baseline_treated_total_l"])
+            if isinstance(data, dict):
+                if data.get("baseline_treated_total_l") is not None:
+                    self._baseline_treated_total_l = float(data["baseline_treated_total_l"])
+                # optional derived state
+                if data.get("last_regen_end"):
+                    try:
+                        self._last_regen_end = dt_util.parse_datetime(data["last_regen_end"])
+                    except Exception:
+                        self._last_regen_end = None
+                if isinstance(data.get("regen_end_history"), list):
+                    hist = []
+                    for s in data["regen_end_history"]:
+                        try:
+                            d = dt_util.parse_datetime(s)
+                            if d is not None:
+                                hist.append(d)
+                        except Exception:
+                            continue
+                    self._regen_end_history = hist[-30:]
+                if isinstance(data.get("daily_usage_history"), list):
+                    # list of {'date': 'YYYY-MM-DD', 'liters': float}
+                    cleaned = []
+                    for it in data["daily_usage_history"]:
+                        if isinstance(it, dict) and isinstance(it.get("date"), str) and it.get("liters") is not None:
+                            try:
+                                cleaned.append({"date": it["date"], "liters": float(it["liters"])})
+                            except Exception:
+                                continue
+                    self._daily_usage_history = cleaned[-60:]
+                if data.get("last_water_today_l") is not None:
+                    try:
+                        self._last_water_today_l = float(data["last_water_today_l"])
+                    except Exception:
+                        self._last_water_today_l = None
+                if isinstance(data.get("last_water_today_date"), str):
+                    self._last_water_today_date = data.get("last_water_today_date")
+
         except Exception as err:
             _LOGGER.debug("Failed to load iQua baseline store: %s", err)
 
@@ -227,7 +270,14 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Persist current baseline."""
         try:
             await self._baseline_store.async_save(
-                {"baseline_treated_total_l": self._baseline_treated_total_l}
+                {
+                    "baseline_treated_total_l": self._baseline_treated_total_l,
+                    "last_regen_end": self._last_regen_end.isoformat() if self._last_regen_end else None,
+                    "regen_end_history": [d.isoformat() for d in self._regen_end_history][-30:],
+                    "daily_usage_history": self._daily_usage_history[-60:],
+                    "last_water_today_l": self._last_water_today_l,
+                    "last_water_today_date": self._last_water_today_date,
+                }
             )
         except Exception as err:
             _LOGGER.debug("Failed to save iQua baseline store: %s", err)
@@ -289,10 +339,49 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Regen ended: active -> inactive
         if treated_total_l is not None and (not regen_active) and self._regen_active_prev:
             self._baseline_treated_total_l = treated_total_l
+            # Record regeneration end timestamp and history
+            now = dt_util.now()
+            self._last_regen_end = now
+            self._regen_end_history.append(now)
+            self._regen_end_history = self._regen_end_history[-30:]
             await self._async_save_baseline()
-            _LOGGER.debug("Set treated-water baseline at regeneration end: %s L", treated_total_l)
+            _LOGGER.debug("Set treated-water baseline at regeneration end: %s L (regen_end=%s)", treated_total_l, now)
 
         self._regen_active_prev = regen_active
+
+        # Track daily usage history using the device's 'water today' counter.
+        water_today = kv.get("water_usage.water_today")
+        try:
+            water_today_l = float(water_today) if water_today is not None else None
+        except Exception:
+            water_today_l = None
+        today_str = dt_util.now().date().isoformat()
+        if self._last_water_today_date is None:
+            self._last_water_today_date = today_str
+            self._last_water_today_l = water_today_l
+        else:
+            # Detect daily reset: today's value drops compared to last observed value.
+            if water_today_l is not None and self._last_water_today_l is not None:
+                if water_today_l + 0.1 < self._last_water_today_l and self._last_water_today_l > 1.0:
+                    # Assume reset happened -> store previous day's usage.
+                    prev_date = self._last_water_today_date
+                    self._daily_usage_history.append({"date": prev_date, "liters": float(self._last_water_today_l)})
+                    # keep last 60 days, unique per date (keep latest)
+                    dedup = {}
+                    for it in self._daily_usage_history:
+                        if isinstance(it, dict) and isinstance(it.get("date"), str) and it.get("liters") is not None:
+                            dedup[it["date"]] = float(it["liters"])
+                    self._daily_usage_history = [{"date": d, "liters": dedup[d]} for d in sorted(dedup.keys())][-60:]
+                    self._last_water_today_date = today_str
+                    self._last_water_today_l = water_today_l
+                    await self._async_save_baseline()
+                else:
+                    # Normal progression within a day
+                    self._last_water_today_l = water_today_l
+                    self._last_water_today_date = today_str
+            else:
+                self._last_water_today_date = today_str
+                self._last_water_today_l = water_today_l
 
         # If we have no baseline yet (e.g., first install), infer it from the
         # most reliable cloud inputs we have. Prefer the absolute "treated water left"
@@ -351,7 +440,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         total_l = self._compute_capacity_total_l(kv)
         if total_l is not None:
             kv["calculated.treated_capacity_total_l"] = total_l
-
         if self._baseline_treated_total_l is not None and treated_total_l is not None and total_l is not None:
             used_since_regen = max(0.0, treated_total_l - self._baseline_treated_total_l)
             remaining_l = max(0.0, total_l - used_since_regen)
@@ -359,9 +447,35 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             kv["calculated.treated_used_since_regen_l"] = used_since_regen
             kv["calculated.treated_capacity_remaining_l"] = remaining_l
             kv["calculated.treated_capacity_remaining_percent"] = (remaining_l / total_l) * 100.0 if total_l > 0 else None
+
+            # Derived metrics (local) based on persisted history
+            now_dt = dt_util.now()
+            if self._last_regen_end is not None:
+                try:
+                    days = (now_dt - self._last_regen_end).total_seconds() / 86400.0
+                    kv["calculated.days_since_last_regen_days"] = max(0.0, days)
+                except Exception:
+                    kv["calculated.days_since_last_regen_days"] = None
+
+            # Average daily use (7d default)
+            if self._daily_usage_history:
+                hist = [it for it in self._daily_usage_history if isinstance(it, dict) and it.get("liters") is not None]
+                last7 = [float(it["liters"]) for it in hist[-7:]]
+                kv["calculated.average_daily_use_l"] = (sum(last7) / len(last7)) if last7 else None
+                last14 = [float(it["liters"]) for it in hist[-14:]]
+                kv["calculated.average_daily_use_l_14d"] = (sum(last14) / len(last14)) if last14 else None
+                last30 = [float(it["liters"]) for it in hist[-30:]]
+                kv["calculated.average_daily_use_l_30d"] = (sum(last30) / len(last30)) if last30 else None
+
+            # Average days between regenerations
+            if len(self._regen_end_history) >= 2:
+                hist_ts = sorted([d for d in self._regen_end_history if d is not None])
+                diffs = [(hist_ts[i] - hist_ts[i - 1]).total_seconds() / 86400.0 for i in range(1, len(hist_ts))]
+                last_int = [d for d in diffs[-5:] if d is not None and d >= 0]
+                kv["calculated.average_days_between_regen_days"] = (sum(last_int) / len(last_int)) if last_int else None
+
         elif self._baseline_treated_total_l is not None:
             kv["calculated.baseline_treated_total_l"] = self._baseline_treated_total_l
-
     def _get_session(self) -> requests.Session:
         if self._session is None:
             self._session = requests.Session()

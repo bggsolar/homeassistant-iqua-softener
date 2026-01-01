@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfMass, UnitOfVolume
+from homeassistant.const import PERCENTAGE, UnitOfMass, UnitOfVolume, UnitOfTime
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -627,6 +627,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="capacity_remaining_percent",
                 translation_key="capacity_remaining_percent",
+                entity_registry_enabled_default=False,
                 native_unit_of_measurement=PERCENTAGE,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
@@ -640,6 +641,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="average_capacity_remaining_at_regen_percent",
                 translation_key="average_capacity_remaining_at_regen_percent",
+                entity_registry_enabled_default=True,
                 native_unit_of_measurement=PERCENTAGE,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
@@ -693,6 +695,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="average_daily_use_l",
                 translation_key="average_daily_use_l",
+                entity_registry_enabled_default=True,
                 device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
@@ -719,6 +722,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="treated_water_available_l",
                 translation_key="treated_water_available_l",
+                entity_registry_enabled_default=False,
                 device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
@@ -767,6 +771,47 @@ async def async_setup_entry(
             mode="total",
         ),
 
+
+# ================== Derived (local, persisted) ==================
+IquaKVSensor(
+    coordinator,
+    device_uuid,
+    SensorEntityDescription(
+        key="calculated_days_since_last_regen_days",
+        translation_key="calculated_days_since_last_regen_days",
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:calendar-clock",
+    ),
+    "calculated.days_since_last_regen_days",
+    round_digits=2,
+),
+IquaKVSensor(
+    coordinator,
+    device_uuid,
+    SensorEntityDescription(
+        key="calculated_average_daily_use_l",
+        translation_key="calculated_average_daily_use_l",
+        native_unit_of_measurement=UnitOfVolume.LITERS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:water-sync",
+    ),
+    "calculated.average_daily_use_l",
+    round_digits=1,
+),
+IquaKVSensor(
+    coordinator,
+    device_uuid,
+    SensorEntityDescription(
+        key="calculated_average_days_between_regen_days",
+        translation_key="calculated_average_days_between_regen_days",
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:calendar-refresh",
+    ),
+    "calculated.average_days_between_regen_days",
+    round_digits=2,
+),
         IquaKVSensor(
             coordinator,
             device_uuid,
@@ -817,6 +862,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="daily_water_usage_reserved_pattern_l",
                 translation_key="daily_water_usage_reserved_pattern_l",
+                entity_registry_enabled_default=True,
                 device_class=None,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.MEASUREMENT,
@@ -847,6 +893,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="total_salt_efficiency_ppm_per_kg",
                 translation_key="total_salt_efficiency_ppm_per_kg",
+                entity_registry_enabled_default=True,
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:chart-bell-curve",
                 suggested_display_precision=0,
@@ -874,6 +921,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="out_of_salt_days",
                 translation_key="out_of_salt_days",
+                entity_registry_enabled_default=True,
                 native_unit_of_measurement="d",
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-clock",
@@ -888,6 +936,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="average_salt_dose_per_recharge_kg",
                 translation_key="average_salt_dose_per_recharge_kg",
+                entity_registry_enabled_default=True,
                 native_unit_of_measurement=UnitOfMass.KILOGRAMS,
                 state_class=SensorStateClass.MEASUREMENT,
                 suggested_display_precision=3,
@@ -1011,6 +1060,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="average_days_between_recharge_days",
                 translation_key="average_days_between_recharge_days",
+                entity_registry_enabled_default=True,
                 native_unit_of_measurement="d",
                 state_class=SensorStateClass.MEASUREMENT,
                 icon="mdi:calendar-range",

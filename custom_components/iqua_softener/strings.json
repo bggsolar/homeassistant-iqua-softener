@@ -11,5 +11,18 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "calculated_days_since_last_regen_days": {
+        "name": "Days since last regeneration (calculated)"
+      },
+      "calculated_average_daily_use_l": {
+        "name": "Avg daily use (calculated)"
+      },
+      "calculated_average_days_between_regen_days": {
+        "name": "Avg days between regenerations (calculated)"
+      }
+    }
   }
 }

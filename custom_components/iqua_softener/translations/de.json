@@ -132,6 +132,15 @@
       },
       "water_totalizer_l": {
         "name": "Wasserzähler (gesamt)"
+      },
+      "calculated_days_since_last_regen_days": {
+        "name": "Tage seit letzter Regeneration (berechnet)"
+      },
+      "calculated_average_daily_use_l": {
+        "name": "Ø Tagesverbrauch (berechnet)"
+      },
+      "calculated_average_days_between_regen_days": {
+        "name": "Ø Tage zwischen Regenerationen (berechnet)"
       }
     }
   }
