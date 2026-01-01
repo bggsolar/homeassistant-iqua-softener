@@ -430,32 +430,43 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
             return
 
         if self._mode == "total":
-            val = total_l
+            # Prefer coordinator-computed value if available (may include additional normalization)
+            val = kv.get("calculated.treated_capacity_total_l", total_l)
         else:
-            pct_raw = (
-                kv.get("capacity.capacity_remaining_percent")
-                or kv.get("status.capacity_remaining_percent")
-                or kv.get("detail.capacity_remaining_percent")
-                or kv.get("capacity_remaining_percent")
-            )
-            if pct_raw is None:
-                for k, v in kv.items():
-                    if isinstance(k, str) and k.endswith(".capacity_remaining_percent"):
-                        pct_raw = v
-                        break
-            # Some API variants expose the remaining capacity percent as "restkapazitat".
-            if pct_raw is None:
-                pct_raw = _first_numeric_by_key_fragment(kv, "restkapaz", "remaining_capacity_percent")
-            pct = _percent_from_api(pct_raw)
-            if pct is None:
-                _LOGGER.debug(
-                    "Calculated capacity (%s) missing remaining percent: raw=%s",
-                    self._mode,
-                    kv.get("capacity.capacity_remaining_percent") or kv.get("capacity_remaining_percent"),
+            # Prefer continuously updated remaining value based on treated water counter + persisted baseline.
+            rem = kv.get("calculated.treated_capacity_remaining_l")
+            if rem is not None:
+                try:
+                    val = float(rem)
+                except Exception:
+                    val = None
+            else:
+                # Fallback to cloud-reported remaining percent (may update infrequently)
+                pct_raw = (
+                    kv.get("capacity.capacity_remaining_percent")
+                    or kv.get("status.capacity_remaining_percent")
+                    or kv.get("detail.capacity_remaining_percent")
+                    or kv.get("capacity_remaining_percent")
                 )
-                self._attr_native_value = None
-                return
-            val = total_l * (pct / 100.0)
+                if pct_raw is None:
+                    for k, v in kv.items():
+                        if isinstance(k, str) and k.endswith(".capacity_remaining_percent"):
+                            pct_raw = v
+                            break
+                # Some API variants expose the remaining capacity percent as "restkapazitat".
+                if pct_raw is None:
+                    pct_raw = _first_numeric_by_key_fragment(kv, "restkapaz", "remaining_capacity_percent")
+                pct = _percent_from_api(pct_raw)
+                if pct is None:
+                    _LOGGER.debug(
+                        "Calculated capacity (%s) missing remaining percent and no baseline-derived remaining value: raw=%s",
+                        self._mode,
+                        pct_raw,
+                    )
+                    self._attr_native_value = None
+                    return
+                val = total_l * (pct / 100.0)
+
 
         self._attr_native_value = _round(val, self._round_digits)
 

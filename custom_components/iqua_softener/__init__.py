@@ -81,6 +81,7 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     )
 
     try:
+        await coordinator.async_load_baseline()
         await coordinator.async_config_entry_first_refresh()
     except Exception as err:
         # Temporary API/network issues -> retry

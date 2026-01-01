@@ -8,8 +8,14 @@ import requests
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.storage import Store
+
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+_STORAGE_VERSION = 1
+_STORAGE_KEY_FMT = f"{DOMAIN}_baseline_{'{'}device_uuid{'}'}"
 
 # Polling interval: 15 minutes
 UPDATE_INTERVAL = timedelta(minutes=2)
@@ -197,6 +203,134 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         self._access_token: Optional[str] = None
         self._session: Optional[requests.Session] = None
+
+        # Persisted baseline for the lifelong treated-water counter at last regeneration.
+        self._baseline_store = Store(hass, _STORAGE_VERSION, _STORAGE_KEY_FMT.format(device_uuid=device_uuid))
+        self._baseline_loaded: bool = False
+        self._baseline_treated_total_l: Optional[float] = None
+        self._regen_active_prev: bool = False
+
+
+    async def async_load_baseline(self) -> None:
+        """Load persisted baseline for treated water counter."""
+        if self._baseline_loaded:
+            return
+        self._baseline_loaded = True
+        try:
+            data = await self._baseline_store.async_load()
+            if isinstance(data, dict) and data.get("baseline_treated_total_l") is not None:
+                self._baseline_treated_total_l = float(data["baseline_treated_total_l"])
+        except Exception as err:
+            _LOGGER.debug("Failed to load iQua baseline store: %s", err)
+
+    async def _async_save_baseline(self) -> None:
+        """Persist current baseline."""
+        try:
+            await self._baseline_store.async_save(
+                {"baseline_treated_total_l": self._baseline_treated_total_l}
+            )
+        except Exception as err:
+            _LOGGER.debug("Failed to save iQua baseline store: %s", err)
+
+    def _compute_capacity_total_l(self, kv: Dict[str, Any]) -> Optional[float]:
+        """Compute total treated capacity in liters from grains + hardness."""
+        op = kv.get("configuration.operating_capacity_grains")
+        if op is None:
+            for k, v in kv.items():
+                if isinstance(k, str) and k.endswith("operating_capacity_grains"):
+                    op = v
+                    break
+        hardness = kv.get("program.hardness_grains")
+        if hardness is None:
+            for k, v in kv.items():
+                if isinstance(k, str) and (k.endswith("hardness_grains") or k.endswith("hardness")):
+                    hardness = v
+                    break
+        try:
+            op_f = float(op)
+            hard_f = float(hardness)
+            if op_f <= 0 or hard_f <= 0:
+                return None
+        except Exception:
+            return None
+        L_PER_GAL = 3.78541
+        return (op_f / hard_f) * L_PER_GAL
+
+    async def _postprocess_calculations(self, data: Dict[str, Any]) -> None:
+        """Derive continuously updated calculated capacity values.
+
+        The cloud may update capacity_remaining_percent infrequently. We compute
+        remaining treated capacity from the lifelong treated_water_total_l counter
+        and a persisted baseline set at the last regeneration.
+        """
+        kv = data.get("kv")
+        if not isinstance(kv, dict):
+            return
+
+        treated_total = kv.get("water_usage.treated_water")
+        try:
+            treated_total_l = float(treated_total) if treated_total is not None else None
+        except Exception:
+            treated_total_l = None
+
+        regen_raw = kv.get("program.regen_time_remaining")
+        try:
+            regen_rem = float(regen_raw) if regen_raw is not None else 0.0
+        except Exception:
+            regen_rem = 0.0
+        regen_active = regen_rem > 0.0
+
+        # If regen just started, set baseline to current treated total
+        if treated_total_l is not None and regen_active and not self._regen_active_prev:
+            self._baseline_treated_total_l = treated_total_l
+            await self._async_save_baseline()
+            _LOGGER.debug("Set treated-water baseline at regeneration start: %s L", treated_total_l)
+
+        self._regen_active_prev = regen_active
+
+        # If we have no baseline yet, infer it from cloud remaining percent (if available)
+        if self._baseline_treated_total_l is None and treated_total_l is not None:
+            total_l = self._compute_capacity_total_l(kv)
+            pct_raw = (
+                kv.get("capacity.capacity_remaining_percent")
+                or kv.get("status.capacity_remaining_percent")
+                or kv.get("detail.capacity_remaining_percent")
+                or kv.get("capacity_remaining_percent")
+            )
+            pct = None
+            if pct_raw is not None:
+                try:
+                    pct = float(pct_raw)
+                    if pct > 100:
+                        pct = pct / 10.0
+                    pct = max(0.0, min(100.0, pct))
+                except Exception:
+                    pct = None
+            if total_l is not None and pct is not None:
+                used_l = total_l * (1.0 - pct / 100.0)
+                self._baseline_treated_total_l = treated_total_l - used_l
+                await self._async_save_baseline()
+                _LOGGER.debug(
+                    "Inferred treated-water baseline from cloud percent: baseline=%s (treated_total=%s, pct=%s, total_l=%s)",
+                    self._baseline_treated_total_l,
+                    treated_total_l,
+                    pct,
+                    total_l,
+                )
+
+        total_l = self._compute_capacity_total_l(kv)
+        if total_l is not None:
+            kv["calculated.treated_capacity_total_l"] = total_l
+
+        if self._baseline_treated_total_l is not None and treated_total_l is not None and total_l is not None:
+            used_since_regen = max(0.0, treated_total_l - self._baseline_treated_total_l)
+            remaining_l = max(0.0, total_l - used_since_regen)
+            kv["calculated.baseline_treated_total_l"] = self._baseline_treated_total_l
+            kv["calculated.treated_used_since_regen_l"] = used_since_regen
+            kv["calculated.treated_capacity_remaining_l"] = remaining_l
+            kv["calculated.treated_capacity_remaining_percent"] = (remaining_l / total_l) * 100.0 if total_l > 0 else None
+        elif self._baseline_treated_total_l is not None:
+            kv["calculated.baseline_treated_total_l"] = self._baseline_treated_total_l
 
     def _get_session(self) -> requests.Session:
         if self._session is None:
@@ -399,8 +533,11 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return {"kv": kv, "tables": tables}
 
     async def _async_update_data(self) -> Dict[str, Any]:
+        await self.async_load_baseline()
         try:
-            return await self.hass.async_add_executor_job(self._sync_update)
+            data = await self.hass.async_add_executor_job(self._sync_update)
+            await self._postprocess_calculations(data)
+            return data
         except UpdateFailed:
             raise
         except requests.exceptions.RequestException as err:
