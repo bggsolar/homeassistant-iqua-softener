@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=2)
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -250,40 +250,57 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return r.json()
 
-    def _fetch_web_sequence(self) -> Dict[str, Any]:
-        """Mimic web app calls that may trigger server-side refresh.
+    def _fetch_web_sequence(self, device_uuid: str) -> dict[str, object]:
+        """Fetch additional device info via the same sequence as the web UI.
 
-        Returns the *detail-or-summary* response (or {} on failure) so we can
-        merge properties that are not present in /debug for some accounts.
+        Returns a dict with optional keys:
+          - device_or_summary
+          - detail_or_summary
+          - ease
         """
+        out: dict[str, object] = {}
 
-        # These two are observed during normal web navigation.
-        for path in ("app/data", "auth/check"):
-            try:
-                self._get(path)
-            except Exception:
-                _LOGGER.debug("Pre-call failed (ignored): %s", path)
-
-        # detail-or-summary contains many authoritative properties.
+        # Pre-calls the web UI does (keep, as it seems to trigger server-side refresh)
         try:
-            return self._get(f"devices/{self._device_uuid}/detail-or-summary")
+            self._get("auth", use_token=True)
         except Exception:
-            _LOGGER.debug("Pre-call failed (ignored): devices/<id>/detail-or-summary")
-            return {}
-
-    def _fetch_debug(self) -> Dict[str, Any]:
-        # 1) Trigger "live" activity (observed in browser) – this often refreshes controller_time etc.
+            pass
         try:
-            _ = self._get(f"devices/{self._device_uuid}/live")
-        except Exception as err:
-            _LOGGER.debug("devices/<id>/live failed (ignored): %s", err)
+            self._get("login", use_token=True)
+        except Exception:
+            pass
 
-        # 2) Mimic web-app sequence (auth/check, app/data, detail-or-summary)
-        detail = self._fetch_web_sequence()
+        # Main payloads
+        try:
+            out["device_or_summary"] = self._get(
+                f"devices/{device_uuid}/device-or-summary", use_token=True
+            )
+        except Exception:
+            out["device_or_summary"] = None
 
-        # 3) Finally fetch debug payload
-        debug_payload = self._get(f"devices/{self._device_uuid}/debug")
-        return {"debug": debug_payload, "detail": detail}
+        try:
+            out["detail_or_summary"] = self._get(
+                f"devices/{device_uuid}/detail-or-summary", use_token=True
+            )
+        except Exception:
+            out["detail_or_summary"] = None
+
+        try:
+            out["ease"] = self._get(
+                f"devices/{device_uuid}/support/ease", use_token=True
+            )
+        except Exception:
+            out["ease"] = None
+
+        return out
+    def _fetch_debug(self) -> dict[str, object]:
+        device_uuid = self._device_uuid
+
+        live = self._get(f"devices/{device_uuid}/live", use_token=True)
+        detail = self._fetch_web_sequence(device_uuid)
+        debug = self._get(f"devices/{device_uuid}/debug", use_token=True)
+
+        return {"debug": debug, "detail": detail, "live": live}
 
     def _merge_detail_into_kv(self, kv: Dict[str, Any], detail: Dict[str, Any]) -> None:
         """Fill missing KV entries from detail-or-summary.
@@ -324,6 +341,14 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             rl = _prop_value("resin_load")
             if rl is not None:
                 kv["configuration.resin_load_liters"] = rl
+        # Capacity / salt values (these should be updated whenever present)
+        cap_pct = _prop_value("capacity_remaining_percent") or _prop_value("restkapazitat") or _prop_value("remaining_capacity_percent")
+        if cap_pct is not None:
+            kv["capacity.capacity_remaining_percent"] = cap_pct
+
+        salt_days = _prop_value("salt_remaining_days") or _prop_value("salt_days_remaining")
+        if salt_days is not None:
+            kv["salt.salt_remaining_days"] = salt_days
 
     def _parse_debug_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         groups = payload.get("groups", [])
@@ -373,17 +398,23 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not self._access_token:
             self._login()
 
-        payloads = self._fetch_debug()
-        debug_payload = payloads.get("debug") or {}
-        detail_payload = payloads.get("detail") or {}
+            payloads = self._fetch_debug()
 
-        data = self._parse_debug_json(debug_payload)
-        try:
-            self._merge_detail_into_kv(data.get("kv", {}), detail_payload)
-        except Exception as err:
-            _LOGGER.debug("detail-or-summary merge failed (ignored): %s", err)
+            data = self._parse_debug_json(payloads.get("debug", {}))
+            kv = data.get("kv", {})
 
-        if not isinstance(data, dict) or "kv" not in data:
-            raise UpdateFailed("Parsed data invalid")
+            # Merge web-sequence payloads (device-or-summary / detail-or-summary / ease)
+            detail_bundle = payloads.get("detail") or {}
+            if isinstance(detail_bundle, dict):
+                for k in ("device_or_summary", "detail_or_summary", "ease"):
+                    part = detail_bundle.get(k)
+                    if isinstance(part, dict):
+                        self._merge_detail_into_kv(kv, part)
 
-        return data
+            # Keep raw payloads around for troubleshooting / future sensors
+            data["raw"] = {
+                "live": payloads.get("live"),
+                "detail": detail_bundle,
+            }
+
+            return data
