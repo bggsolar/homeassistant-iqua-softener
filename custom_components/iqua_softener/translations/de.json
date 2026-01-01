@@ -1,14 +1,125 @@
 {
   "entity": {
     "sensor": {
-      "last_message_received": {
-        "name": "Letzte Nachricht empfangen"
+      "average_capacity_remaining_at_regen_percent": {
+        "name": "Ø Restkapazität bei Regeneration"
+      },
+      "average_daily_use_l": {
+        "name": "Ø Tagesverbrauch"
+      },
+      "average_days_between_recharge_days": {
+        "name": "Ø Tage zwischen Regenerationen"
+      },
+      "average_salt_dose_per_recharge_kg": {
+        "name": "Ø Salz je Regeneration"
+      },
+      "calculated_treated_capacity_remaining_l": {
+        "name": "Restkapazität behandelt (berechnet)"
+      },
+      "calculated_treated_capacity_remaining_percent": {
+        "name": "Restkapazität behandelt (berechnet, %)"
+      },
+      "calculated_treated_capacity_total_l": {
+        "name": "Behandelte Wasserkapazität gesamt (berechnet)"
       },
       "capacity_remaining_percent": {
         "name": "Restkapazität"
       },
-      "average_capacity_remaining_at_regen_percent": {
-        "name": "Ø Restkapazität bei Regeneration"
+      "controller_time": {
+        "name": "Controller‑Uhrzeit"
+      },
+      "current_flow_lpm": {
+        "name": "Aktueller Durchfluss"
+      },
+      "daily_average_rock_removed_kg": {
+        "name": "Ø entfernte Härte pro Tag"
+      },
+      "daily_water_usage_avg_pattern_l": {
+        "name": "Wasserverbrauch‑Muster (Ø)"
+      },
+      "daily_water_usage_reserved_pattern_l": {
+        "name": "Wasserverbrauch‑Muster (Reserve)"
+      },
+      "days_since_last_time_loss": {
+        "name": "Tage seit letztem Spannungsverlust"
+      },
+      "functional_computer_board": {
+        "name": "Steuerplatine"
+      },
+      "functional_cord_power_supply": {
+        "name": "Netzteil / Versorgung"
+      },
+      "functional_water_meter_sensor": {
+        "name": "Wasserzähler‑Sensor"
+      },
+      "hardness_grains_per_gal": {
+        "name": "Wasserhärte"
+      },
+      "last_message_received": {
+        "name": "Letzte Nachricht empfangen"
+      },
+      "longest_recorded_outage": {
+        "name": "Längster Stromausfall"
+      },
+      "manual_regens": {
+        "name": "Manuelle Regenerationen"
+      },
+      "misc_lockout_status": {
+        "name": "Sperrstatus"
+      },
+      "misc_regeneration_enabled": {
+        "name": "Regeneration aktiviert"
+      },
+      "misc_second_output": {
+        "name": "Zweiter Ausgang"
+      },
+      "operating_capacity_grains": {
+        "name": "Betriebskapazität"
+      },
+      "out_of_salt_days": {
+        "name": "Ohne Salz (Tage)"
+      },
+      "peak_flow_lpm": {
+        "name": "Spitzen-Durchfluss"
+      },
+      "regen_time_remaining": {
+        "name": "Restzeit Regeneration"
+      },
+      "salt_monitor_percent": {
+        "name": "Salzfüllstand"
+      },
+      "salt_total_kg": {
+        "name": "Salzverbrauch (gesamt)"
+      },
+      "second_backwash_cycles": {
+        "name": "2. Rückspülzyklen"
+      },
+      "since_regen_rock_removed_kg": {
+        "name": "Entfernte Härte seit Regeneration"
+      },
+      "time_in_operation_days": {
+        "name": "Betriebszeit (Tage)"
+      },
+      "time_since_last_recharge_days": {
+        "name": "Tage seit letzter Regeneration"
+      },
+      "total_power_outages": {
+        "name": "Stromausfälle (gesamt)"
+      },
+      "total_regens": {
+        "name": "Regenerationen (gesamt)"
+      },
+      "total_rock_removed_kg": {
+        "name": "Entfernte Härte (gesamt)"
+      },
+      "total_salt_efficiency_ppm_per_kg": {
+        "name": "Salz‑Effizienz (gesamt)"
+      },
+      "total_times_power_lost": {
+        "name": "Spannungsverlust (Anzahl)"
+      },
+      "treated_water_available_l": {
+        "name": "Behandeltes Wasser verfügbar"
       },
       "treated_water_total_l": {
         "name": "Behandeltes Wasser (gesamt)"
@@ -19,116 +130,8 @@
       "water_today_l": {
         "name": "Wasserverbrauch heute"
       },
-      "average_daily_use_l": {
-        "name": "Ø Tagesverbrauch"
-      },
       "water_totalizer_l": {
         "name": "Wasserzähler (gesamt)"
-      },
-      "treated_water_available_l": {
-        "name": "Behandeltes Wasser verfügbar"
-      },
-      "current_flow_lpm": {
-        "name": "Aktueller Durchfluss"
-      },
-      "peak_flow_lpm": {
-        "name": "Spitzen-Durchfluss"
-      },
-      "daily_water_usage_avg_pattern_l": {
-        "name": "Wasserverbrauch‑Muster (Ø)"
-      },
-      "daily_water_usage_reserved_pattern_l": {
-        "name": "Wasserverbrauch‑Muster (Reserve)"
-      },
-      "salt_total_kg": {
-        "name": "Salzverbrauch (gesamt)"
-      },
-      "total_salt_efficiency_ppm_per_kg": {
-        "name": "Salz‑Effizienz (gesamt)"
-      },
-      "salt_monitor_percent": {
-        "name": "Salzfüllstand"
-      },
-      "out_of_salt_days": {
-        "name": "Ohne Salz (Tage)"
-      },
-      "average_salt_dose_per_recharge_kg": {
-        "name": "Ø Salz je Regeneration"
-      },
-      "total_rock_removed_kg": {
-        "name": "Entfernte Härte (gesamt)"
-      },
-      "daily_average_rock_removed_kg": {
-        "name": "Ø entfernte Härte pro Tag"
-      },
-      "since_regen_rock_removed_kg": {
-        "name": "Entfernte Härte seit Regeneration"
-      },
-      "time_in_operation_days": {
-        "name": "Betriebszeit (Tage)"
-      },
-      "total_regens": {
-        "name": "Regenerationen (gesamt)"
-      },
-      "manual_regens": {
-        "name": "Manuelle Regenerationen"
-      },
-      "second_backwash_cycles": {
-        "name": "2. Rückspülzyklen"
-      },
-      "time_since_last_recharge_days": {
-        "name": "Tage seit letzter Regeneration"
-      },
-      "average_days_between_recharge_days": {
-        "name": "Ø Tage zwischen Regenerationen"
-      },
-      "total_power_outages": {
-        "name": "Stromausfälle (gesamt)"
-      },
-      "total_times_power_lost": {
-        "name": "Spannungsverlust (Anzahl)"
-      },
-      "days_since_last_time_loss": {
-        "name": "Tage seit letztem Spannungsverlust"
-      },
-      "longest_recorded_outage": {
-        "name": "Längster Stromausfall"
-      },
-      "functional_water_meter_sensor": {
-        "name": "Wasserzähler‑Sensor"
-      },
-      "functional_computer_board": {
-        "name": "Steuerplatine"
-      },
-      "functional_cord_power_supply": {
-        "name": "Netzteil / Versorgung"
-      },
-      "misc_second_output": {
-        "name": "Zweiter Ausgang"
-      },
-      "misc_regeneration_enabled": {
-        "name": "Regeneration aktiviert"
-      },
-      "misc_lockout_status": {
-        "name": "Sperrstatus"
-      },
-      "controller_time": {
-        "name": "Controller‑Uhrzeit"
-      },
-      "regen_time_remaining": {
-        "name": "Restzeit Regeneration"
-      },
-      "hardness_grains_per_gal": {
-        "name": "Wasserhärte"
-      },
-      "operating_capacity_grains": {
-        "name": "Betriebskapazität"
-      },
-      "calculated_treated_capacity_total_l": {
-        "name": "Behandelte Wasserkapazität gesamt (berechnet)"
-      },
-      "calculated_treated_capacity_remaining_l": {
-        "name": "Restkapazität behandelt (berechnet)"
       }
     }
   }
