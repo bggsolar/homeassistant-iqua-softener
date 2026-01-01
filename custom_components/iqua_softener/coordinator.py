@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=2)
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -417,6 +417,15 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         data = self._parse_debug_json(payloads.get("debug", {}))
         kv = data.get("kv", {})
+
+        # Merge /live values into kv. This endpoint tends to update whenever the
+        # web UI is opened and often carries the freshest runtime properties.
+        live = payloads.get("live")
+        if isinstance(live, dict):
+            try:
+                self._merge_detail_into_kv(kv, live)
+            except Exception as err:
+                _LOGGER.debug("Failed to merge /live into kv (ignored): %s", err)
 
         # Merge web-sequence payloads (detail-or-summary / ease) into kv
         detail_bundle = payloads.get("detail") or {}

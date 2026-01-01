@@ -105,6 +105,23 @@ def _to_float(v: Any) -> Optional[float]:
         return None
 
 
+def _first_numeric_by_key_fragment(
+    kv: dict[str, Any],
+    *fragments: str,
+) -> Optional[float]:
+    """Find the first numeric value in kv whose key contains any fragment."""
+    if not kv or not fragments:
+        return None
+    frags = tuple(f.lower() for f in fragments)
+    for k, v in kv.items():
+        kl = str(k).lower()
+        if any(f in kl for f in frags):
+            n = _to_float(v)
+            if n is not None:
+                return n
+    return None
+
+
 
 def _percent_from_api(raw: Any) -> Optional[float]:
     """Some API values are scaled by 10 (e.g. 765 == 76.5%)."""
@@ -129,6 +146,12 @@ def _treated_capacity_total_l(operating_capacity_grains: Any, hardness_grains: A
     hard = _to_float(hardness_grains)
     if cap is None or hard is None or hard <= 0:
         return None
+
+    # Many iQua endpoints expose hardness as ppm (mg/L CaCO3). Convert heuristically.
+    # 1 gpg ≈ 17.1 ppm.
+    if hard > 60:  # values above ~60 are very likely ppm, not grains/gal
+        hard = hard / 17.1
+
     gallons = cap / hard
     liters = gallons * 3.785412
     return liters
@@ -377,8 +400,8 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
                 "operating_capacity_grains",
             ),
             # safety-net: the debug endpoint varies a lot between devices/accounts
-            suffixes=("operating_capacity_grains",),
-            contains=("operating_capacity_grains",),
+            suffixes=("operating_capacity_grains", "operating_capacity"),
+            contains=("operating_capacity_grains", "operating_capacity"),
         )
 
         hardness_raw = _kv_first_value(
@@ -386,11 +409,13 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
             exact_keys=(
                 "program.hardness_grains",
                 "program.hardness",
+                "program.hardness_ppm",
                 "hardness_grains",
                 "hardness",
+                "hardness_ppm",
             ),
-            suffixes=("hardness_grains", "hardness"),
-            contains=("hardness_grains",),
+            suffixes=("hardness_grains", "hardness", "hardness_ppm"),
+            contains=("hardness_grains", "hardness", "hardness_ppm"),
         )
 
         total_l = _treated_capacity_total_l(op_cap_raw, hardness_raw)
@@ -418,6 +443,9 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
                     if isinstance(k, str) and k.endswith(".capacity_remaining_percent"):
                         pct_raw = v
                         break
+            # Some API variants expose the remaining capacity percent as "restkapazitat".
+            if pct_raw is None:
+                pct_raw = _first_numeric_by_key_fragment(kv, "restkapaz", "remaining_capacity_percent")
             pct = _percent_from_api(pct_raw)
             if pct is None:
                 _LOGGER.debug(
