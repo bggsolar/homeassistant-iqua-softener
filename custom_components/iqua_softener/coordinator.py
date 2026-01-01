@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=2)
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -409,26 +409,28 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             raise UpdateFailed(f"Unexpected error: {type(err).__name__}: {err}") from err
 
     def _sync_update(self) -> Dict[str, Any]:
+        # Ensure we have a valid token
         if not self._access_token:
             self._login()
 
-            payloads = self._fetch_debug()
+        payloads = self._fetch_debug()
 
-            data = self._parse_debug_json(payloads.get("debug", {}))
-            kv = data.get("kv", {})
+        data = self._parse_debug_json(payloads.get("debug", {}))
+        kv = data.get("kv", {})
 
-            # Merge web-sequence payloads (device-or-summary / detail-or-summary / ease)
-            detail_bundle = payloads.get("detail") or {}
-            if isinstance(detail_bundle, dict):
-                for k in ("device_or_summary", "detail_or_summary", "ease"):
-                    part = detail_bundle.get(k)
-                    if isinstance(part, dict):
-                        self._merge_detail_into_kv(kv, part)
+        # Merge web-sequence payloads (detail-or-summary / ease) into kv
+        detail_bundle = payloads.get("detail") or {}
+        if isinstance(detail_bundle, dict):
+            for k in ("detail_or_summary", "ease"):
+                part = detail_bundle.get(k)
+                if isinstance(part, dict):
+                    self._merge_detail_into_kv(kv, part)
 
-            # Keep raw payloads around for troubleshooting / future sensors
-            data["raw"] = {
-                "live": payloads.get("live"),
-                "detail": detail_bundle,
-            }
+        # Keep raw payloads around for troubleshooting / future sensors
+        data["raw"] = {
+            "live": payloads.get("live"),
+            "detail": detail_bundle,
+        }
 
-            return data
+        return data
+
