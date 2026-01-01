@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval: 15 minutes
-UPDATE_INTERVAL = timedelta(minutes=2)
+UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_API_BASE_URL = "https://api.myiquaapp.com/v1"
 DEFAULT_APP_ORIGIN = "https://app.myiquaapp.com"
@@ -236,14 +236,28 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             raise UpdateFailed("Login response missing access_token.")
         self._access_token = token
 
-    def _get(self, path: str) -> Dict[str, Any]:
-        sess = self._get_session()
-        r = sess.get(self._url(path), headers=self._headers(with_auth=True), timeout=20)
+    def _get(self, path: str, *, use_token: bool = True) -> Dict[str, Any]:
+        """Perform a GET request.
 
-        if r.status_code in (401, 403):
+        The web app calls some bootstrap endpoints where auth handling may differ.
+        To keep our coordinator robust (and to match recorded HAR flows), callers
+        can pass use_token=False to skip adding the bearer token.
+        """
+        sess = self._get_session()
+        r = sess.get(
+            self._url(path),
+            headers=self._headers(with_auth=use_token),
+            timeout=20,
+        )
+
+        if use_token and r.status_code in (401, 403):
             self._access_token = None
             self._login()
-            r = sess.get(self._url(path), headers=self._headers(with_auth=True), timeout=20)
+            r = sess.get(
+                self._url(path),
+                headers=self._headers(with_auth=True),
+                timeout=20,
+            )
 
         if r.status_code != 200:
             raise UpdateFailed(f"GET failed: HTTP {r.status_code} for {r.url}")
