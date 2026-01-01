@@ -356,6 +356,9 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
         super().__init__(coordinator, device_uuid, description)
         self._mode = mode  # "total" or "remaining"
         self._round_digits = round_digits
+        # Initialize value from the first coordinator payload
+        self.update_from_data(coordinator.data or {})
+
 
     def update_from_data(self, data: Dict[str, Any]) -> None:
         kv = data.get("kv", {})
@@ -428,6 +431,11 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
 
         self._attr_native_value = _round(val, self._round_digits)
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Recompute values whenever the coordinator updates."""
+        self.update_from_data(self.coordinator.data or {})
+        self.async_write_ha_state()
 
 class IquaUsagePatternSensor(IquaBaseSensor):
     """
