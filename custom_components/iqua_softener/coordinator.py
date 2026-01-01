@@ -450,6 +450,17 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Derived metrics (local) based on persisted history
             now_dt = dt_util.now()
+            if self._last_regen_end is None:
+                cloud_days = kv.get("regenerations.time_since_last_recharge_days")
+                try:
+                    cloud_days_f = float(cloud_days) if cloud_days is not None else None
+                except Exception:
+                    cloud_days_f = None
+                if cloud_days_f is not None:
+                    self._last_regen_end = now_dt - timedelta(days=cloud_days_f)
+                    # Do not backfill full history; just seed last_regen_end for immediate availability.
+                    await self._async_save_baseline()
+
             if self._last_regen_end is not None:
                 try:
                     days = (now_dt - self._last_regen_end).total_seconds() / 86400.0
@@ -462,6 +473,13 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 hist = [it for it in self._daily_usage_history if isinstance(it, dict) and it.get("liters") is not None]
                 last7 = [float(it["liters"]) for it in hist[-7:]]
                 kv["calculated.average_daily_use_l"] = (sum(last7) / len(last7)) if last7 else None
+                if kv.get("calculated.average_daily_use_l") is None:
+                    cloud_avg = kv.get("water_usage.average_daily_use")
+                    try:
+                        kv["calculated.average_daily_use_l"] = float(cloud_avg) if cloud_avg is not None else None
+                    except Exception:
+                        kv["calculated.average_daily_use_l"] = None
+
                 last14 = [float(it["liters"]) for it in hist[-14:]]
                 kv["calculated.average_daily_use_l_14d"] = (sum(last14) / len(last14)) if last14 else None
                 last30 = [float(it["liters"]) for it in hist[-30:]]
@@ -473,6 +491,13 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 diffs = [(hist_ts[i] - hist_ts[i - 1]).total_seconds() / 86400.0 for i in range(1, len(hist_ts))]
                 last_int = [d for d in diffs[-5:] if d is not None and d >= 0]
                 kv["calculated.average_days_between_regen_days"] = (sum(last_int) / len(last_int)) if last_int else None
+                if kv.get("calculated.average_days_between_regen_days") is None:
+                    cloud_avg = kv.get("regenerations.average_days_between_recharge_days")
+                    try:
+                        kv["calculated.average_days_between_regen_days"] = float(cloud_avg) if cloud_avg is not None else None
+                    except Exception:
+                        kv["calculated.average_days_between_regen_days"] = None
+
 
         elif self._baseline_treated_total_l is not None:
             kv["calculated.baseline_treated_total_l"] = self._baseline_treated_total_l

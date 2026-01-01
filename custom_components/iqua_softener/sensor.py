@@ -669,6 +669,7 @@ async def async_setup_entry(
             SensorEntityDescription(
                 key="untreated_water_total_l",
                 translation_key="untreated_water_total_l",
+                entity_registry_enabled_default=False,
                 device_class=SensorDeviceClass.WATER,
                 native_unit_of_measurement=UnitOfVolume.LITERS,
                 state_class=SensorStateClass.TOTAL_INCREASING,
@@ -1194,6 +1195,7 @@ IquaKVSensor(
             SensorEntityDescription(
                 key="controller_time",
                 translation_key="controller_time",
+                entity_registry_enabled_default=False,
                 icon="mdi:clock-outline",
             ),
             "program.controller_time",
