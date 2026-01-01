@@ -280,43 +280,73 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             regen_rem = 0.0
         regen_active = regen_rem > 0.0
 
-        # If regen just started, set baseline to current treated total
-        if treated_total_l is not None and regen_active and not self._regen_active_prev:
+        # Track regeneration edges. We want the baseline to represent the
+        # lifelong treated-water counter **after** a regeneration has completed.
+        # The device reports regen_time_remaining > 0 while regenerating.
+        if regen_active and not self._regen_active_prev:
+            _LOGGER.debug("Regeneration started (regen_time_remaining=%s)", regen_rem)
+
+        # Regen ended: active -> inactive
+        if treated_total_l is not None and (not regen_active) and self._regen_active_prev:
             self._baseline_treated_total_l = treated_total_l
             await self._async_save_baseline()
-            _LOGGER.debug("Set treated-water baseline at regeneration start: %s L", treated_total_l)
+            _LOGGER.debug("Set treated-water baseline at regeneration end: %s L", treated_total_l)
 
         self._regen_active_prev = regen_active
 
-        # If we have no baseline yet, infer it from cloud remaining percent (if available)
+        # If we have no baseline yet (e.g., first install), infer it from the
+        # most reliable cloud inputs we have. Prefer the absolute "treated water left"
+        # value when present, as the percent value is known to update infrequently.
         if self._baseline_treated_total_l is None and treated_total_l is not None:
             total_l = self._compute_capacity_total_l(kv)
-            pct_raw = (
-                kv.get("capacity.capacity_remaining_percent")
-                or kv.get("status.capacity_remaining_percent")
-                or kv.get("detail.capacity_remaining_percent")
-                or kv.get("capacity_remaining_percent")
-            )
-            pct = None
-            if pct_raw is not None:
+
+            # 1) Prefer absolute remaining liters from cloud
+            left_raw = kv.get("water_usage.treated_water_left")
+            left_l = None
+            if left_raw is not None:
                 try:
-                    pct = float(pct_raw)
-                    if pct > 100:
-                        pct = pct / 10.0
-                    pct = max(0.0, min(100.0, pct))
+                    left_l = float(left_raw)
                 except Exception:
-                    pct = None
-            if total_l is not None and pct is not None:
-                used_l = total_l * (1.0 - pct / 100.0)
+                    left_l = None
+            if total_l is not None and left_l is not None:
+                used_l = max(0.0, total_l - left_l)
                 self._baseline_treated_total_l = treated_total_l - used_l
                 await self._async_save_baseline()
                 _LOGGER.debug(
-                    "Inferred treated-water baseline from cloud percent: baseline=%s (treated_total=%s, pct=%s, total_l=%s)",
+                    "Inferred treated-water baseline from cloud treated_water_left: baseline=%s (treated_total=%s, left_l=%s, total_l=%s)",
                     self._baseline_treated_total_l,
                     treated_total_l,
-                    pct,
+                    left_l,
                     total_l,
                 )
+            else:
+                # 2) Fallback to cloud remaining percent (scaled-by-10 sometimes)
+                pct_raw = (
+                    kv.get("capacity.capacity_remaining_percent")
+                    or kv.get("status.capacity_remaining_percent")
+                    or kv.get("detail.capacity_remaining_percent")
+                    or kv.get("capacity_remaining_percent")
+                )
+                pct = None
+                if pct_raw is not None:
+                    try:
+                        pct = float(pct_raw)
+                        if pct > 100:
+                            pct = pct / 10.0
+                        pct = max(0.0, min(100.0, pct))
+                    except Exception:
+                        pct = None
+                if total_l is not None and pct is not None:
+                    used_l = total_l * (1.0 - pct / 100.0)
+                    self._baseline_treated_total_l = treated_total_l - used_l
+                    await self._async_save_baseline()
+                    _LOGGER.debug(
+                        "Inferred treated-water baseline from cloud percent: baseline=%s (treated_total=%s, pct=%s, total_l=%s)",
+                        self._baseline_treated_total_l,
+                        treated_total_l,
+                        pct,
+                        total_l,
+                    )
 
         total_l = self._compute_capacity_total_l(kv)
         if total_l is not None:
