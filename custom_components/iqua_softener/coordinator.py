@@ -218,6 +218,11 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._last_water_today_l: Optional[float] = None
         self._last_water_today_date: Optional[str] = None
 
+        # Persisted capacity-delta state (fix17)
+        self._capacity_ist_ready: bool = False
+        self._capacity_remaining_l: Optional[float] = None
+        self._water_total_last_l: Optional[float] = None
+
 
     async def async_load_baseline(self) -> None:
         """Load persisted baseline for treated water counter."""
@@ -263,6 +268,21 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 if isinstance(data.get("last_water_today_date"), str):
                     self._last_water_today_date = data.get("last_water_today_date")
 
+                # fix17: capacity delta state
+                if data.get("capacity_ist_ready") is not None:
+                    self._capacity_ist_ready = bool(data["capacity_ist_ready"])
+                if data.get("capacity_remaining_l") is not None:
+                    try:
+                        self._capacity_remaining_l = float(data["capacity_remaining_l"])
+                    except Exception:
+                        self._capacity_remaining_l = None
+                if data.get("water_total_last_l") is not None:
+                    try:
+                        self._water_total_last_l = float(data["water_total_last_l"])
+                    except Exception:
+                        self._water_total_last_l = None
+
+
         except Exception as err:
             _LOGGER.debug("Failed to load iQua baseline store: %s", err)
 
@@ -277,6 +297,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     "daily_usage_history": self._daily_usage_history[-60:],
                     "last_water_today_l": self._last_water_today_l,
                     "last_water_today_date": self._last_water_today_date,
+                    "capacity_ist_ready": self._capacity_ist_ready,
+                    "capacity_remaining_l": self._capacity_remaining_l,
+                    "water_total_last_l": self._water_total_last_l,
                 }
             )
         except Exception as err:
@@ -339,6 +362,13 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Regen ended: active -> inactive
         if treated_total_l is not None and (not regen_active) and self._regen_active_prev:
             self._baseline_treated_total_l = treated_total_l
+            # fix17: start delta-based tracking from regeneration end
+            self._capacity_ist_ready = True
+            self._water_total_last_l = treated_total_l
+            total_l_now = self._compute_capacity_total_l(kv)
+            if total_l_now is not None:
+                self._capacity_remaining_l = float(total_l_now)
+
             # Record regeneration end timestamp and history
             now = dt_util.now()
             self._last_regen_end = now
@@ -440,7 +470,38 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         total_l = self._compute_capacity_total_l(kv)
         if total_l is not None:
             kv["calculated.treated_capacity_total_l"] = total_l
-        if self._baseline_treated_total_l is not None and treated_total_l is not None and total_l is not None:
+
+        # Expose regeneration status (info-only entities must not drive logic)
+        kv["calculated.regen_time_remaining_secs"] = regen_rem
+        kv["calculated.regeneration_running"] = regen_active
+
+        # fix17: delta-based remaining capacity tracking
+        # We only subtract *changes* in the lifetime treated-water counter after regeneration end,
+        # so absolute values are never double-counted.
+        if (not regen_active) and self._capacity_ist_ready and (self._capacity_remaining_l is not None) and (self._water_total_last_l is not None) and (treated_total_l is not None):
+            delta = treated_total_l - self._water_total_last_l
+            if delta > 0:
+                self._capacity_remaining_l = max(0.0, float(self._capacity_remaining_l) - float(delta))
+                self._water_total_last_l = treated_total_l
+            elif delta < 0:
+                # Counter reset/jump backwards: keep remaining but reset baseline to avoid negative deltas
+                _LOGGER.debug("Treated-water counter moved backwards (last=%s now=%s). Resetting delta baseline.", self._water_total_last_l, treated_total_l)
+                self._water_total_last_l = treated_total_l
+
+        kv["calculated.capacity_ist_ready"] = self._capacity_ist_ready
+
+        # Prefer fix17 delta-based remaining if ready; otherwise fall back to baseline-based absolute calc.
+        remaining_l = None
+        used_since_regen = None
+
+        if total_l is not None and self._capacity_ist_ready and self._capacity_remaining_l is not None:
+            remaining_l = max(0.0, min(float(total_l), float(self._capacity_remaining_l)))
+            used_since_regen = max(0.0, float(total_l) - remaining_l)
+            kv["calculated.treated_used_since_regen_l"] = used_since_regen
+            kv["calculated.treated_capacity_remaining_l"] = remaining_l
+            kv["calculated.treated_capacity_remaining_percent"] = (remaining_l / total_l) * 100.0 if total_l > 0 else None
+            kv["calculated.baseline_treated_total_l"] = self._baseline_treated_total_l
+        elif self._baseline_treated_total_l is not None and treated_total_l is not None and total_l is not None:
             used_since_regen = max(0.0, treated_total_l - self._baseline_treated_total_l)
             remaining_l = max(0.0, total_l - used_since_regen)
             kv["calculated.baseline_treated_total_l"] = self._baseline_treated_total_l

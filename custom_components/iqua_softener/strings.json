@@ -23,6 +23,14 @@
       "calculated_average_days_between_regen_days": {
         "name": "Avg days between regenerations (calculated)"
       }
+    },
+    "binary_sensor": {
+      "regeneration_running": {
+        "name": "Regeneration läuft"
+      },
+      "treated_capacity_ist_ready": {
+        "name": "Enthärtungskapazität IST berechnet"
+      }
     }
   }
 }
