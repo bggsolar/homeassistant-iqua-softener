@@ -1213,3 +1213,22 @@ IquaKVSensor(
     ]
 
     async_add_entities(sensors)
+
+# fix16: Boolean sensor for active regeneration
+from homeassistant.components.binary_sensor import BinarySensorEntity
+
+class IquaRegenerationActiveSensor(BinarySensorEntity):
+    _attr_name = "Regeneration läuft"
+    _attr_icon = "mdi:sync"
+
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
+
+    @property
+    def is_on(self):
+        data = self.coordinator.data or {}
+        rest = data.get("restzeit_regeneration")
+        try:
+            return rest is not None and int(rest) > 0
+        except Exception:
+            return False
