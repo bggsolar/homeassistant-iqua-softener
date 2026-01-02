@@ -1232,3 +1232,7 @@ class IquaRegenerationActiveSensor(BinarySensorEntity):
             return rest is not None and int(rest) > 0
         except Exception:
             return False
+
+
+# fix17: metadata for regeneration sensor
+IquaRegenerationActiveSensor._attr_unique_id = "iqua_regeneration_laeuft"
