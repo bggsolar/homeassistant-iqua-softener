@@ -10,6 +10,5 @@
   "requirements": [
     "requests>=2.31.0"
   ],
-  "version": "2.4.0-fix19",
-  "platforms": ["sensor", "binary_sensor"]
+  "version": "2.4.0-fix20"
 }
