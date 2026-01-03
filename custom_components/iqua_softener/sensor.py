@@ -789,31 +789,6 @@ class IquaHouseTotalLitersSensor(IquaDerivedBaseSensor):
         self._attr_extra_state_attributes = self._base_attrs()
 
 
-class IquaDeltaTotalLitersSensor(IquaDerivedBaseSensor):
-    """Cumulative delta total: house_total - softened_total (liters)."""
-
-    def update_from_data(self, data: Dict[str, Any]) -> None:
-        self._calc_status = "enabled"
-        self._calc_reason = "ok"
-
-        house_total_l = self._read_house_total_l()
-        soft_total_l = self._read_soft_total_l()
-        if house_total_l is None or soft_total_l is None:
-            if house_total_l is None:
-                # reason set by _read_house_total_l
-                pass
-            else:
-                self._calc_status = "disabled"
-                self._calc_reason = "missing_soft_total"
-            self._attr_native_value = None
-            self._attr_extra_state_attributes = self._base_attrs()
-            return
-
-        delta = max(house_total_l - soft_total_l, 0.0)
-        self._attr_native_value = _round(delta, 1)
-        self._attr_extra_state_attributes = self._base_attrs()
-
-
 class IquaDailyCounterSensor(IquaDerivedBaseSensor, RestoreEntity):
     """Daily consumption based on a total_increasing source.
 
@@ -1619,25 +1594,6 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
     )
 
-    delta_total_l_sensor = IquaDeltaTotalLitersSensor(
-        coordinator,
-        device_uuid,
-        SensorEntityDescription(
-            key="delta_water_total_l",
-            translation_key="delta_water_total_l",
-            device_class=SensorDeviceClass.WATER,
-            native_unit_of_measurement=UnitOfVolume.LITERS,
-            state_class=SensorStateClass.TOTAL_INCREASING,
-            icon="mdi:water-minus",
-            entity_registry_enabled_default=True,
-        ),
-        house_entity_id=house_entity_id,
-        house_unit_mode=house_unit_mode,
-        house_factor=house_factor,
-        raw_hardness_dh=raw_hardness_dh,
-        softened_hardness_dh=softened_hardness_dh,
-    )
-
     house_daily_l = IquaDailyCounterSensor(
         coordinator,
         device_uuid,
@@ -1738,7 +1694,6 @@ IquaKVSensor(
     sensors.extend(
         [
             house_total_l_sensor,
-            delta_total_l_sensor,
             house_daily_l,
             softened_daily_l,
             delta_daily_l,
