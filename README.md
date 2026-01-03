@@ -87,3 +87,15 @@ To add an iQua water softener to Home assistant, go to Settings and click "+ ADD
 
 
 
+
+
+### Daily-Metriken (Berechnungen)
+
+Die Integration berechnet **ausschließlich Tageswerte ("heute")**, um unterschiedliche Referenzzeitpunkte von Haus- und Enthärterzähler zu vermeiden.
+
+- **Rohwasser heute (L)** = Haus heute − Enthärter heute
+- **Rohwasseranteil heute (%)** = Rohwasser heute / Haus heute
+- **Weichwasseranteil heute (%)** = 100 − Rohwasseranteil heute *(optional, standardmäßig deaktiviert)*
+- **Effektive Härte heute (°dH)** = Rohwasserhärte × Rohwasseranteil
+
+> Annahme: Das durch den Ionentauscher gelaufene Wasser wird mit **0 °dH** angenommen. Falls du eine abweichende Weichwasserhärte berücksichtigen möchtest, kann der Wert **Weichwasserhärte (°dH)** am Gerät gesetzt werden (Default: 0.0).
