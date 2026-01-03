@@ -23,7 +23,8 @@ The units displayed are set in the application settings.
 Diese Version kann optional einen **Hauswasserzähler** (z. B. `sensor.watermeter_value` in m³) einbinden und daraus zusätzliche Sensoren berechnen:
 
 - **Wasser Haus gesamt (Liter)** (`house_water_total_l`): Hauszähler normalisiert auf Liter (TOTAL_INCREASING)
-- **Differenz gesamt (Haus - Enthärter)** (`delta_water_total_l`): Haus - iQua „Behandeltes Wasser gesamt“ (TOTAL_INCREASING)
+
+> Hinweis: Es wird bewusst **keine Lebenszeit-"Differenz gesamt"** berechnet, da Hauszähler und Enthärterzähler unterschiedliche Referenzzeitpunkte (Inbetriebnahme) haben können. Die Berechnung erfolgt daher ausschließlich auf **Tageswerten**.
 - **Wasser Haus heute (Liter)** (`house_water_daily_l`): Verbrauch seit Tagesbeginn (lokale Zeit)
 - **Wasser Enthärter heute (Liter)** (`softened_water_daily_l`): Behandeltes Wasser seit Tagesbeginn
 - **Differenz heute (Haus - Enthärter)** (`delta_water_daily_l`)
