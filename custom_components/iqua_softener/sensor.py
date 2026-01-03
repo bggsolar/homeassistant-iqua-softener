@@ -29,6 +29,7 @@ from .const import (
     CONF_RAW_HARDNESS_DH,
     CONF_SOFTENED_HARDNESS_DH,
     DEFAULT_RAW_HARDNESS_DH,
+    DEFAULT_SOFTENED_HARDNESS_DH,
     HOUSE_UNIT_MODE_AUTO,
     HOUSE_UNIT_MODE_M3,
     HOUSE_UNIT_MODE_L,
@@ -752,12 +753,17 @@ class IquaDerivedBaseSensor(IquaBaseSensor):
         return _to_float(v)
 
     def _read_hardness_inputs(self) -> tuple[Optional[float], Optional[float], Optional[str]]:
+        """Read hardness inputs.
+
+        - raw hardness is required (°dH)
+        - soft water hardness defaults to 0.0 °dH if not configured
+        """
         raw = _parse_optional_float(self._raw_hardness_opt)
         soft = _parse_optional_float(self._soft_hardness_opt)
         if raw is None:
             return None, None, "missing_raw_hardness"
         if soft is None:
-            return None, None, "missing_softened_hardness"
+            soft = float(DEFAULT_SOFTENED_HARDNESS_DH)
         if raw < 0 or soft < 0:
             return None, None, "invalid_hardness"
         return raw, soft, None
@@ -852,7 +858,7 @@ class IquaDailyCounterSensor(IquaDerivedBaseSensor, RestoreEntity):
 
 
 class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
-    """Compute treated (mixed) hardness for today's water usage."""
+    """Compute effective outlet hardness for today's water usage (based on measured daily mixing)."""
 
     def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -945,7 +951,48 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
 
 # ---------- Setup ----------
 
-async def async_setup_entry(
+async def 
+
+class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
+    """Compute softened-water fraction (share of softened water) for today's usage in percent.
+
+    This is simply:
+        softened_fraction = 100 - raw_fraction
+    and is available whenever daily volumes are available.
+    """
+
+    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._house_daily = house_daily
+        self._delta_daily = delta_daily
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        # Ensure daily sensors are updated from the same coordinator tick
+        self._house_daily.update_from_data(data)
+        self._delta_daily.update_from_data(data)
+
+        house_today = _parse_optional_float(self._house_daily.native_value)
+        delta_today = _parse_optional_float(self._delta_daily.native_value)
+
+        if house_today is None or house_today <= 0 or delta_today is None:
+            if self._calc_reason == "ok":
+                self._calc_status = "disabled"
+                self._calc_reason = "missing_daily_volumes"
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {**self._base_attrs()}
+            return
+
+        roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
+        soft_frac = 1.0 - roh_frac
+
+        self._attr_native_value = _round(soft_frac * 100.0, 1)
+        self._attr_extra_state_attributes = {**self._base_attrs(), "raw_fraction_percent": _round(roh_frac * 100.0, 1)}
+
+
+async_setup_entry(
     hass: core.HomeAssistant,
     config_entry: config_entries.ConfigEntry,
     async_add_entities,
@@ -1691,6 +1738,27 @@ IquaKVSensor(
         delta_daily=delta_daily_l,
     )
 
+    softened_fraction_daily = IquaSoftenedFractionDailySensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="softened_fraction_daily_percent",
+            translation_key="softened_fraction_daily_percent",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:water-percent",
+            entity_registry_enabled_default=False,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        house_daily=house_daily_l,
+        delta_daily=delta_daily_l,
+    )
+
+
     sensors.extend(
         [
             house_total_l_sensor,
@@ -1699,6 +1767,7 @@ IquaKVSensor(
             delta_daily_l,
             treated_hardness_daily,
             raw_fraction_daily,
+            softened_fraction_daily,
         ]
     )
 

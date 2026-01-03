@@ -13,7 +13,7 @@
         "name": "Raw water hardness (°dH)"
       },
       "softened_hardness_dh": {
-        "name": "Residual hardness after softener (°dH)"
+        "name": "Soft water hardness (°dH)"
       }
     },
     "sensor": {
@@ -69,7 +69,7 @@
         "name": "Days since last time loss"
       },
       "delta_water_daily_l": {
-        "name": "Delta today (house - softened)"
+        "name": "Raw water today (L)"
       },
       "functional_computer_board": {
         "name": "Computer board"
@@ -134,6 +134,9 @@
       "since_regen_rock_removed_kg": {
         "name": "Rock removed since regen"
       },
+      "softened_fraction_daily_percent": {
+        "name": "Softened water share today"
+      },
       "softened_water_daily_l": {
         "name": "Softened water today (liters)"
       },
@@ -159,7 +162,7 @@
         "name": "Total times power lost"
       },
       "treated_hardness_daily_dh": {
-        "name": "Treated hardness (today)"
+        "name": "Effective hardness today (°dH)"
       },
       "treated_water_available_l": {
         "name": "Treated water available"

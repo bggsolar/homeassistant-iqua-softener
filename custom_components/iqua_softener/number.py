@@ -57,7 +57,7 @@ SOFTENED_HARDNESS_DESC = IquaNumberDescription(
     translation_key="softened_hardness_dh",
     icon="mdi:water-check",
     option_key=CONF_SOFTENED_HARDNESS_DH,
-    default_value=None,  # Missing rest hardness => calculation is disabled (desired behavior)
+    default_value=0.0,  # assumed soft water hardness (°dH); set if your softener outlet is not ~0
     native_unit_of_measurement="°dH",
     native_min_value=0.0,
     native_max_value=20.0,

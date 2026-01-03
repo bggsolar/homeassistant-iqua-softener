@@ -17,6 +17,7 @@ CONF_SOFTENED_HARDNESS_DH = "softened_hardness_dh"
 # Default raw water hardness (°dH) used for the optional treated hardness calculation.
 # User requested default: 22.2 °dH
 DEFAULT_RAW_HARDNESS_DH = 22.2
+DEFAULT_SOFTENED_HARDNESS_DH = 0.0  # assumed soft water hardness (°dH) if not specified
 
 HOUSE_UNIT_MODE_AUTO = "auto"
 HOUSE_UNIT_MODE_M3 = "m3"
