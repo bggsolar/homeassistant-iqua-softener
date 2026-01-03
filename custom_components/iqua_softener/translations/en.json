@@ -1,5 +1,21 @@
 {
   "entity": {
+    "binary_sensor": {
+      "regeneration_running": {
+        "name": "Regeneration running"
+      },
+      "treated_capacity_ist_ready": {
+        "name": "Softening capacity calculated"
+      }
+    },
+    "number": {
+      "raw_hardness_dh": {
+        "name": "Raw water hardness (°dH)"
+      },
+      "softened_hardness_dh": {
+        "name": "Residual hardness after softener (°dH)"
+      }
+    },
     "sensor": {
       "average_capacity_remaining_at_regen_percent": {
         "name": "Avg capacity remaining at regen"
@@ -12,6 +28,15 @@
       },
       "average_salt_dose_per_recharge_kg": {
         "name": "Avg salt dose per recharge"
+      },
+      "calculated_average_daily_use_l": {
+        "name": "Avg daily use (calculated)"
+      },
+      "calculated_average_days_between_regen_days": {
+        "name": "Avg days between regenerations (calculated)"
+      },
+      "calculated_days_since_last_regen_days": {
+        "name": "Days since last regeneration (calculated)"
       },
       "calculated_treated_capacity_remaining_l": {
         "name": "Remaining treated water (calculated)"
@@ -43,6 +68,12 @@
       "days_since_last_time_loss": {
         "name": "Days since last time loss"
       },
+      "delta_water_daily_l": {
+        "name": "Delta today (house - softened)"
+      },
+      "delta_water_total_l": {
+        "name": "Delta total (house - softened)"
+      },
       "functional_computer_board": {
         "name": "Computer board"
       },
@@ -54,6 +85,12 @@
       },
       "hardness_grains_per_gal": {
         "name": "Hardness"
+      },
+      "house_water_daily_l": {
+        "name": "House water today (liters)"
+      },
+      "house_water_total_l": {
+        "name": "House water total (liters)"
       },
       "last_message_received": {
         "name": "Last message received"
@@ -82,6 +119,9 @@
       "peak_flow_lpm": {
         "name": "Peak flow"
       },
+      "raw_fraction_daily_percent": {
+        "name": "Mixing ratio raw share (today)"
+      },
       "regen_time_remaining": {
         "name": "Regen time remaining"
       },
@@ -96,6 +136,9 @@
       },
       "since_regen_rock_removed_kg": {
         "name": "Rock removed since regen"
+      },
+      "softened_water_daily_l": {
+        "name": "Softened water today (liters)"
       },
       "time_in_operation_days": {
         "name": "Time in operation"
@@ -118,6 +161,9 @@
       "total_times_power_lost": {
         "name": "Total times power lost"
       },
+      "treated_hardness_daily_dh": {
+        "name": "Treated hardness (today)"
+      },
       "treated_water_available_l": {
         "name": "Treated water available"
       },
@@ -132,23 +178,6 @@
       },
       "water_totalizer_l": {
         "name": "Water totalizer"
-      },
-      "calculated_days_since_last_regen_days": {
-        "name": "Days since last regeneration (calculated)"
-      },
-      "calculated_average_daily_use_l": {
-        "name": "Avg daily use (calculated)"
-      },
-      "calculated_average_days_between_regen_days": {
-        "name": "Avg days between regenerations (calculated)"
-      }
-    },
-    "binary_sensor": {
-      "regeneration_running": {
-        "name": "Regeneration running"
-      },
-      "treated_capacity_ist_ready": {
-        "name": "Softening capacity calculated"
       }
     }
   }

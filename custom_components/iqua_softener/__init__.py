@@ -15,7 +15,7 @@ from .coordinator import IquaSoftenerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[str] = ["sensor", "binary_sensor"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "number"]
 
 
 def _get_merged_entry_data(entry: config_entries.ConfigEntry) -> dict:

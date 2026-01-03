@@ -1,5 +1,8 @@
 {
   "config": {
+    "error": {
+      "invalid_house_factor": "Bitte einen gültigen Faktor > 0 angeben (nur bei Einheit = factor)."
+    },
     "step": {
       "user": {
         "title": "iQua Softener",
@@ -8,6 +11,20 @@
           "email": "E-Mail",
           "password": "Passwort",
           "device_uuid": "Geräte-UUID"
+        }
+      },
+      "init": {
+        "title": "Optionen",
+        "description": "Optionale Zusatzberechnungen (Hauszähler, Differenz, Tageswerte, Wasserhärte).",
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort",
+          "device_uuid": "Geräte-UUID",
+          "house_watermeter_entity": "Wasserzähler Haus (Sensor)",
+          "house_watermeter_unit_mode": "Einheit Hauszähler",
+          "house_watermeter_factor": "Faktor zu Liter (nur wenn Einheit = factor)",
+          "raw_hardness_dh": "Rohwasserhärte (°dH)",
+          "softened_hardness_dh": "Resthärte nach Enthärtung (°dH)"
         }
       }
     }

@@ -1,5 +1,21 @@
 {
   "entity": {
+    "binary_sensor": {
+      "regeneration_running": {
+        "name": "Regeneration läuft"
+      },
+      "treated_capacity_ist_ready": {
+        "name": "Enthärtungskapazität IST berechnet"
+      }
+    },
+    "number": {
+      "raw_hardness_dh": {
+        "name": "Rohwasserhärte (°dH)"
+      },
+      "softened_hardness_dh": {
+        "name": "Resthärte nach Enthärtung (°dH)"
+      }
+    },
     "sensor": {
       "average_capacity_remaining_at_regen_percent": {
         "name": "Ø Restkapazität bei Regeneration"
@@ -12,6 +28,15 @@
       },
       "average_salt_dose_per_recharge_kg": {
         "name": "Ø Salz je Regeneration"
+      },
+      "calculated_average_daily_use_l": {
+        "name": "Ø Tagesverbrauch (berechnet)"
+      },
+      "calculated_average_days_between_regen_days": {
+        "name": "Ø Tage zwischen Regenerationen (berechnet)"
+      },
+      "calculated_days_since_last_regen_days": {
+        "name": "Tage seit letzter Regeneration (berechnet)"
       },
       "calculated_treated_capacity_remaining_l": {
         "name": "Restkapazität behandelt (berechnet)"
@@ -43,6 +68,12 @@
       "days_since_last_time_loss": {
         "name": "Tage seit letztem Spannungsverlust"
       },
+      "delta_water_daily_l": {
+        "name": "Differenz heute (Haus - Enthärter)"
+      },
+      "delta_water_total_l": {
+        "name": "Differenz gesamt (Haus - Enthärter)"
+      },
       "functional_computer_board": {
         "name": "Steuerplatine"
       },
@@ -54,6 +85,12 @@
       },
       "hardness_grains_per_gal": {
         "name": "Wasserhärte"
+      },
+      "house_water_daily_l": {
+        "name": "Wasser Haus heute (Liter)"
+      },
+      "house_water_total_l": {
+        "name": "Wasser Haus gesamt (Liter)"
       },
       "last_message_received": {
         "name": "Letzte Nachricht empfangen"
@@ -82,6 +119,9 @@
       "peak_flow_lpm": {
         "name": "Spitzen-Durchfluss"
       },
+      "raw_fraction_daily_percent": {
+        "name": "Verschneidung Rohwasseranteil (heute)"
+      },
       "regen_time_remaining": {
         "name": "Restzeit Regeneration"
       },
@@ -96,6 +136,9 @@
       },
       "since_regen_rock_removed_kg": {
         "name": "Entfernte Härte seit Regeneration"
+      },
+      "softened_water_daily_l": {
+        "name": "Wasser Enthärter heute (Liter)"
       },
       "time_in_operation_days": {
         "name": "Betriebszeit (Tage)"
@@ -118,6 +161,9 @@
       "total_times_power_lost": {
         "name": "Spannungsverlust (Anzahl)"
       },
+      "treated_hardness_daily_dh": {
+        "name": "Härte behandelt (heute)"
+      },
       "treated_water_available_l": {
         "name": "Behandeltes Wasser verfügbar"
       },
@@ -132,23 +178,6 @@
       },
       "water_totalizer_l": {
         "name": "Wasserzähler (gesamt)"
-      },
-      "calculated_days_since_last_regen_days": {
-        "name": "Tage seit letzter Regeneration (berechnet)"
-      },
-      "calculated_average_daily_use_l": {
-        "name": "Ø Tagesverbrauch (berechnet)"
-      },
-      "calculated_average_days_between_regen_days": {
-        "name": "Ø Tage zwischen Regenerationen (berechnet)"
-      }
-    },
-    "binary_sensor": {
-      "regeneration_running": {
-        "name": "Regeneration läuft"
-      },
-      "treated_capacity_ist_ready": {
-        "name": "Enthärtungskapazität IST berechnet"
       }
     }
   }

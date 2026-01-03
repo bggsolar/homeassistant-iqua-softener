@@ -15,16 +15,118 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, UnitOfMass, UnitOfVolume, UnitOfTime
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, CONF_DEVICE_UUID, VOLUME_FLOW_RATE_LITERS_PER_MINUTE
+from .const import (
+    DOMAIN,
+    CONF_DEVICE_UUID,
+    VOLUME_FLOW_RATE_LITERS_PER_MINUTE,
+    CONF_HOUSE_WATERMETER_ENTITY,
+    CONF_HOUSE_WATERMETER_UNIT_MODE,
+    CONF_HOUSE_WATERMETER_FACTOR,
+    CONF_RAW_HARDNESS_DH,
+    CONF_SOFTENED_HARDNESS_DH,
+    DEFAULT_RAW_HARDNESS_DH,
+    HOUSE_UNIT_MODE_AUTO,
+    HOUSE_UNIT_MODE_M3,
+    HOUSE_UNIT_MODE_L,
+    HOUSE_UNIT_MODE_FACTOR,
+)
 from .coordinator import IquaSoftenerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 
 # ---------- Helpers ----------
+
+def _get_merged_entry_data(entry: config_entries.ConfigEntry) -> dict[str, Any]:
+    """Merge entry.data + entry.options (options override data)."""
+    merged = dict(entry.data)
+    if entry.options:
+        merged.update(entry.options)
+    return merged
+
+
+def _parse_optional_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    try:
+        return float(s.replace(",", "."))
+    except Exception:
+        return None
+
+
+def _detect_unit_factor(unit: Optional[str]) -> Optional[float]:
+    """Detect factor to convert given unit to liters.
+
+    Returns:
+      1000.0 for m³-like units, 1.0 for liters, None if unknown.
+    """
+    if not unit:
+        return None
+    u = str(unit).strip().lower()
+    # m³ variants
+    if u in {"m³", "m3", "m^3", "cbm", "cubic meters", "cubic meter"}:
+        return 1000.0
+    # liter variants
+    if u in {"l", "ℓ", "liter", "liters", "litre", "litres"}:
+        return 1.0
+    return None
+
+
+def _house_total_liters(
+    hass: core.HomeAssistant,
+    *,
+    entity_id: str,
+    unit_mode: str,
+    factor_opt: Any,
+) -> tuple[Optional[float], Optional[float], str]:
+    """Read house watermeter from HA and convert to liters.
+
+    Returns:
+      (value_liters, factor_used, reason)
+    where reason is "ok" or a short error code.
+    """
+    if not entity_id:
+        return None, None, "missing_entity"
+
+    st = hass.states.get(entity_id)
+    if st is None:
+        return None, None, "entity_not_found"
+
+    if st.state in ("unknown", "unavailable", "none", ""):
+        return None, None, "entity_unavailable"
+
+    try:
+        raw = float(str(st.state).replace(",", "."))
+    except Exception:
+        return None, None, "not_numeric"
+
+    factor_used: Optional[float] = None
+    mode = (unit_mode or HOUSE_UNIT_MODE_AUTO).strip().lower()
+    if mode == HOUSE_UNIT_MODE_M3:
+        factor_used = 1000.0
+    elif mode == HOUSE_UNIT_MODE_L:
+        factor_used = 1.0
+    elif mode == HOUSE_UNIT_MODE_FACTOR:
+        f = _parse_optional_float(factor_opt)
+        if f is None or f <= 0:
+            return None, None, "invalid_factor"
+        factor_used = f
+    else:  # auto
+        unit = st.attributes.get("unit_of_measurement")
+        factor_used = _detect_unit_factor(unit)
+        if factor_used is None:
+            return None, None, "unknown_unit"
+
+    return raw * factor_used, factor_used, "ok"
 
 def _as_str(v: Any) -> Optional[str]:
     if v is None:
@@ -594,6 +696,278 @@ class IquaUsagePatternSensor(IquaBaseSensor):
         self._attr_native_value = _round(sum(nums) / len(nums), self._round_digits) if nums else None
 
 
+# ---------- Derived calculations (optional) ----------
+
+class IquaDerivedBaseSensor(IquaBaseSensor):
+    """Base for sensors that derive values from HA state + iQua data.
+
+    These sensors are optional and will return None (-> unavailable) if
+    required inputs are not configured or not valid.
+    """
+
+    def __init__(
+        self,
+        coordinator: IquaSoftenerCoordinator,
+        device_uuid: str,
+        description: SensorEntityDescription,
+        *,
+        house_entity_id: str,
+        house_unit_mode: str,
+        house_factor: Any,
+        raw_hardness_dh: Any,
+        softened_hardness_dh: Any,
+    ) -> None:
+        super().__init__(coordinator, device_uuid, description)
+        self._house_entity_id = house_entity_id
+        self._house_unit_mode = house_unit_mode
+        self._house_factor = house_factor
+        self._raw_hardness_opt = raw_hardness_dh
+        self._soft_hardness_opt = softened_hardness_dh
+
+        self._calc_status: str = "disabled"
+        self._calc_reason: str = "missing_inputs"
+        self._factor_used: Optional[float] = None
+
+    def _read_house_total_l(self) -> Optional[float]:
+        v, factor_used, reason = _house_total_liters(
+            self.hass,
+            entity_id=self._house_entity_id,
+            unit_mode=self._house_unit_mode,
+            factor_opt=self._house_factor,
+        )
+        self._factor_used = factor_used
+        if reason != "ok":
+            self._calc_status = "disabled"
+            self._calc_reason = reason
+            return None
+        return v
+
+    def _read_soft_total_l(self) -> Optional[float]:
+        # iQua already reports treated water total in liters
+        data = self.coordinator.data or {}
+        kv = data.get("kv", {}) if isinstance(data, dict) else {}
+        if not isinstance(kv, dict):
+            return None
+        v = kv.get("water_usage.treated_water")
+        return _to_float(v)
+
+    def _read_hardness_inputs(self) -> tuple[Optional[float], Optional[float], Optional[str]]:
+        raw = _parse_optional_float(self._raw_hardness_opt)
+        soft = _parse_optional_float(self._soft_hardness_opt)
+        if raw is None:
+            return None, None, "missing_raw_hardness"
+        if soft is None:
+            return None, None, "missing_softened_hardness"
+        if raw < 0 or soft < 0:
+            return None, None, "invalid_hardness"
+        return raw, soft, None
+
+    def _base_attrs(self) -> dict[str, Any]:
+        return {
+            "calc_status": self._calc_status,
+            "calc_reason": self._calc_reason,
+            "house_entity": self._house_entity_id,
+            "house_unit_mode": self._house_unit_mode,
+            "house_factor_used": self._factor_used,
+        }
+
+
+class IquaHouseTotalLitersSensor(IquaDerivedBaseSensor):
+    """Normalized house watermeter value in liters (total_increasing)."""
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        house_total_l = self._read_house_total_l()
+        if house_total_l is None:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = self._base_attrs()
+            return
+
+        self._attr_native_value = _round(house_total_l, 1)
+        self._attr_extra_state_attributes = self._base_attrs()
+
+
+class IquaDeltaTotalLitersSensor(IquaDerivedBaseSensor):
+    """Cumulative delta total: house_total - softened_total (liters)."""
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        house_total_l = self._read_house_total_l()
+        soft_total_l = self._read_soft_total_l()
+        if house_total_l is None or soft_total_l is None:
+            if house_total_l is None:
+                # reason set by _read_house_total_l
+                pass
+            else:
+                self._calc_status = "disabled"
+                self._calc_reason = "missing_soft_total"
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = self._base_attrs()
+            return
+
+        delta = max(house_total_l - soft_total_l, 0.0)
+        self._attr_native_value = _round(delta, 1)
+        self._attr_extra_state_attributes = self._base_attrs()
+
+
+class IquaDailyCounterSensor(IquaDerivedBaseSensor, RestoreEntity):
+    """Daily consumption based on a total_increasing source.
+
+    This does not rely on recorder statistics; it stores the start-of-day total.
+    """
+
+    _attr_extra_restore_state_attributes = True
+
+    def __init__(self, *args, source: str, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._source = source  # 'house' | 'soft' | 'delta'
+        self._start_total: Optional[float] = None
+        self._start_date: Optional[str] = None  # ISO date
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last and last.attributes:
+            self._start_total = _parse_optional_float(last.attributes.get("start_total"))
+            self._start_date = last.attributes.get("start_date")
+
+    def _today_iso(self) -> str:
+        return dt_util.as_local(dt_util.utcnow()).date().isoformat()
+
+    def _current_total(self) -> Optional[float]:
+        if self._source == "house":
+            return self._read_house_total_l()
+        if self._source == "soft":
+            return self._read_soft_total_l()
+        if self._source == "delta":
+            house_total_l = self._read_house_total_l()
+            soft_total_l = self._read_soft_total_l()
+            if house_total_l is None or soft_total_l is None:
+                return None
+            return max(house_total_l - soft_total_l, 0.0)
+        return None
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        total = self._current_total()
+        if total is None:
+            # reason set by _read_house_total_l() if relevant
+            if self._source in ("soft", "delta") and self._calc_reason == "ok":
+                self._calc_status = "disabled"
+                self._calc_reason = "missing_source_total"
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {**self._base_attrs(), "start_total": self._start_total, "start_date": self._start_date}
+            return
+
+        today = self._today_iso()
+        if self._start_date != today or self._start_total is None:
+            # new day or first run
+            self._start_date = today
+            self._start_total = total
+
+        daily = max(total - (self._start_total or 0.0), 0.0)
+        self._attr_native_value = _round(daily, 1)
+        self._attr_extra_state_attributes = {**self._base_attrs(), "start_total": self._start_total, "start_date": self._start_date}
+
+
+class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
+    """Compute treated (mixed) hardness for today's water usage."""
+
+    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._house_daily = house_daily
+        self._delta_daily = delta_daily
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        # Default attrs
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        raw_h, soft_h, err = self._read_hardness_inputs()
+        if err:
+            self._calc_status = "disabled"
+            self._calc_reason = err
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = self._base_attrs()
+            return
+
+        # Ensure daily sensors are updated from the same coordinator tick
+        self._house_daily.update_from_data(data)
+        self._delta_daily.update_from_data(data)
+
+        house_today = _parse_optional_float(self._house_daily.native_value)
+        delta_today = _parse_optional_float(self._delta_daily.native_value)
+        if house_today is None or house_today <= 0 or delta_today is None:
+            self._calc_status = "disabled"
+            self._calc_reason = "missing_daily_volumes"
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h}
+            return
+
+        roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
+        h_mix = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
+
+        self._attr_native_value = _round(h_mix, 2)
+        self._attr_extra_state_attributes = {
+            **self._base_attrs(),
+            "raw_hardness_dh": raw_h,
+            "softened_hardness_dh": soft_h,
+            "raw_fraction": _round(roh_frac, 4),
+        }
+
+
+class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
+    """Compute raw-water fraction (mixing ratio) for today's water usage.
+
+    This sensor reports the *share of non-softened (raw) water* in percent
+    for the current day, based on:
+      raw_liters_today = max(house_today - softened_today, 0)
+
+    Unlike treated hardness, this does **not** require hardness inputs and
+    remains available even if rest hardness is not set.
+    """
+
+    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._house_daily = house_daily
+        self._delta_daily = delta_daily
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        # Ensure daily sensors are updated from the same coordinator tick
+        self._house_daily.update_from_data(data)
+        self._delta_daily.update_from_data(data)
+
+        house_today = _parse_optional_float(self._house_daily.native_value)
+        delta_today = _parse_optional_float(self._delta_daily.native_value)
+
+        if house_today is None or house_today <= 0 or delta_today is None:
+            # If house meter is missing, _read_house_total_l() has already set the reason.
+            if self._calc_reason == "ok":
+                self._calc_status = "disabled"
+                self._calc_reason = "missing_daily_volumes"
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = self._base_attrs()
+            return
+
+        roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
+        self._attr_native_value = _round(roh_frac * 100.0, 1)
+        self._attr_extra_state_attributes = {
+            **self._base_attrs(),
+            "raw_fraction": _round(roh_frac, 4),
+            "house_today_l": _round(house_today, 1),
+            "raw_today_l": _round(delta_today, 1),
+        }
+
+
 # ---------- Setup ----------
 
 async def async_setup_entry(
@@ -604,6 +978,18 @@ async def async_setup_entry(
     cfg = hass.data[DOMAIN][config_entry.entry_id]
     coordinator: IquaSoftenerCoordinator = cfg["coordinator"]
     device_uuid: str = cfg[CONF_DEVICE_UUID]
+
+    merged = _get_merged_entry_data(config_entry)
+    house_entity_id = str(merged.get(CONF_HOUSE_WATERMETER_ENTITY) or "").strip()
+    house_unit_mode = str(merged.get(CONF_HOUSE_WATERMETER_UNIT_MODE) or HOUSE_UNIT_MODE_AUTO)
+    house_factor = merged.get(CONF_HOUSE_WATERMETER_FACTOR)
+    raw_hardness_dh = merged.get(CONF_RAW_HARDNESS_DH)
+    softened_hardness_dh = merged.get(CONF_SOFTENED_HARDNESS_DH)
+
+    # Provide a sensible default for raw hardness (user requested: 22.2 °dH).
+    # Rest hardness remains optional; if missing/invalid, treated hardness calculation is disabled.
+    if raw_hardness_dh in (None, ""):
+        raw_hardness_dh = DEFAULT_RAW_HARDNESS_DH
 
     sensors: list[IquaBaseSensor] = [
         # ================== Customer / Metadata ==================
@@ -1211,5 +1597,154 @@ IquaKVSensor(
             "program.regen_time_remaining",
         ),
     ]
+
+    # ----- Optional derived sensors (delta + daily + treated hardness) -----
+    # These sensors are always added, but will be unavailable unless inputs are configured.
+    house_total_l_sensor = IquaHouseTotalLitersSensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="house_water_total_l",
+            translation_key="house_water_total_l",
+            device_class=SensorDeviceClass.WATER,
+            native_unit_of_measurement=UnitOfVolume.LITERS,
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            icon="mdi:water",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+    )
+
+    delta_total_l_sensor = IquaDeltaTotalLitersSensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="delta_water_total_l",
+            translation_key="delta_water_total_l",
+            device_class=SensorDeviceClass.WATER,
+            native_unit_of_measurement=UnitOfVolume.LITERS,
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            icon="mdi:water-minus",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+    )
+
+    house_daily_l = IquaDailyCounterSensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="house_water_daily_l",
+            translation_key="house_water_daily_l",
+            native_unit_of_measurement=UnitOfVolume.LITERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:water",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        source="house",
+    )
+
+    softened_daily_l = IquaDailyCounterSensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="softened_water_daily_l",
+            translation_key="softened_water_daily_l",
+            native_unit_of_measurement=UnitOfVolume.LITERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:water-check",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        source="soft",
+    )
+
+    delta_daily_l = IquaDailyCounterSensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="delta_water_daily_l",
+            translation_key="delta_water_daily_l",
+            native_unit_of_measurement=UnitOfVolume.LITERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:water-minus",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        source="delta",
+    )
+
+    treated_hardness_daily = IquaTreatedHardnessDailySensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="treated_hardness_daily_dh",
+            translation_key="treated_hardness_daily_dh",
+            native_unit_of_measurement="°dH",
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:water-opacity",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        house_daily=house_daily_l,
+        delta_daily=delta_daily_l,
+    )
+
+    raw_fraction_daily = IquaRawFractionDailySensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="raw_fraction_daily_percent",
+            translation_key="raw_fraction_daily_percent",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:water-percent",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        house_daily=house_daily_l,
+        delta_daily=delta_daily_l,
+    )
+
+    sensors.extend(
+        [
+            house_total_l_sensor,
+            delta_total_l_sensor,
+            house_daily_l,
+            softened_daily_l,
+            delta_daily_l,
+            treated_hardness_daily,
+            raw_fraction_daily,
+        ]
+    )
 
     async_add_entities(sensors)

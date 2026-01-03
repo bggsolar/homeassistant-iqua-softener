@@ -18,7 +18,40 @@ The units displayed are set in the application settings.
 ![Homeassistant sensor dialog](sensor.png)
 
 ## Installation
+## Zusatzfunktionen: Hauszähler, Differenz, Tageswerte, Wasserhärte
+
+Diese Version kann optional einen **Hauswasserzähler** (z. B. `sensor.watermeter_value` in m³) einbinden und daraus zusätzliche Sensoren berechnen:
+
+- **Wasser Haus gesamt (Liter)** (`house_water_total_l`): Hauszähler normalisiert auf Liter (TOTAL_INCREASING)
+- **Differenz gesamt (Haus - Enthärter)** (`delta_water_total_l`): Haus - iQua „Behandeltes Wasser gesamt“ (TOTAL_INCREASING)
+- **Wasser Haus heute (Liter)** (`house_water_daily_l`): Verbrauch seit Tagesbeginn (lokale Zeit)
+- **Wasser Enthärter heute (Liter)** (`softened_water_daily_l`): Behandeltes Wasser seit Tagesbeginn
+- **Differenz heute (Haus - Enthärter)** (`delta_water_daily_l`)
+- **Rohwasseranteil (heute)** (`raw_fraction_daily_percent`): Anteil Rohwasser in % (heute) basierend auf `delta / house`
+- **Wasserhärte behandelt (heute)** (`treated_hardness_daily_dh`): Mischhärte aus Rohwasserhärte und Resthärte anhand des Tages-Mischungsverhältnisses
+
+### Konfiguration
+
+`Einstellungen → Geräte & Dienste → iQua Softener → Optionen`
+
+1. **Wasserzähler Haus (Sensor)** auswählen (dein `sensor.watermeter_value`).
+2. **Einheit Hauszähler** wählen:
+   - `auto`: versucht die Einheit am Sensor zu erkennen (`m³`/`L`).
+   - `m3`: Wert ist in m³ → wird mit 1000 in Liter umgerechnet.
+   - `l`: Wert ist bereits in Liter.
+   - `factor`: eigener Umrechnungsfaktor (z. B. wenn dein Sensor „Ticks“ liefert).
+3. Die Härtewerte werden als **Konfigurations-Entitäten** bereitgestellt (unter dem Gerät):
+   - **Wasserhärte Rohwasser** (`number.*_raw_hardness_dh`) – Default: **22,2 °dH**
+   - **Resthärte nach Enthärtung** (`number.*_softened_hardness_dh`) – zunächst *unavailable* bis gesetzt
+
+**Wichtig:** Die Härte-Berechnung wird automatisch **deaktiviert**, solange die **Resthärte** fehlt/ungültig ist.
 Copy the `custom_components/iqua_softener` folder into the config folder.
+
+## LEYCOsoft Pro 9 – Leistungsdaten (Kurzfassung)
+
+Für die Berechnungen / Plausibilisierung (z. B. Kapazität pro °dH) kann es hilfreich sein, die Leistungsdaten der **LEYCOsoft Pro 9** zu kennen. Ich habe die wichtigsten Werte aus dem offiziellen Produktdatenblatt zusammengefasst:
+
+- [LEYCOsoft Pro 9 – Leistungsdaten (Markdown)](docs/leycosoft_pro_9.md)
 
 ## Setup / Configuration
 
