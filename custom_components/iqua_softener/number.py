@@ -66,6 +66,19 @@ SOFTENED_HARDNESS_DESC = IquaNumberDescription(
 )
 
 
+SODIUM_RAW_DESC = IquaNumberDescription(
+    key="raw_sodium_mg_l",
+    translation_key="raw_sodium_mg_l",
+    icon="mdi:water-sodium",
+    option_key=CONF_RAW_SODIUM_MG_L,
+    default_value=DEFAULT_RAW_SODIUM_MG_L,
+    native_unit_of_measurement="mg/L",
+    native_min_value=0.0,
+    native_max_value=500.0,
+    native_step=0.1,
+    entity_category=EntityCategory.CONFIG,
+)
+
 class IquaOptionsNumber(NumberEntity):
     """A NumberEntity backed by config_entry.options.
 
@@ -119,15 +132,30 @@ async def async_setup_entry(
     cfg = hass.data[DOMAIN][config_entry.entry_id]
     device_uuid: str = cfg[CONF_DEVICE_UUID]
 
-    # Ensure a sensible default for raw hardness if not set yet.
+    # Ensure sensible defaults if not set yet.
     opts = dict(config_entry.options or {})
-    if not _get_opt_float(opts.get(CONF_RAW_HARDNESS_DH)):
-        opts.setdefault(CONF_RAW_HARDNESS_DH, DEFAULT_RAW_HARDNESS_DH)
+    changed = False
+
+    if _get_opt_float(opts.get(CONF_RAW_HARDNESS_DH)) is None:
+        opts[CONF_RAW_HARDNESS_DH] = DEFAULT_RAW_HARDNESS_DH
+        changed = True
+
+    if _get_opt_float(opts.get(CONF_SOFTENED_HARDNESS_DH)) is None:
+        # assumed soft water hardness (°dH)
+        opts[CONF_SOFTENED_HARDNESS_DH] = 0.0
+        changed = True
+
+    if _get_opt_float(opts.get(CONF_RAW_SODIUM_MG_L)) is None:
+        opts[CONF_RAW_SODIUM_MG_L] = DEFAULT_RAW_SODIUM_MG_L
+        changed = True
+
+    if changed:
         hass.config_entries.async_update_entry(config_entry, options=opts)
 
     async_add_entities(
         [
             IquaOptionsNumber(hass, config_entry, device_uuid, RAW_HARDNESS_DESC),
             IquaOptionsNumber(hass, config_entry, device_uuid, SOFTENED_HARDNESS_DESC),
+            IquaOptionsNumber(hass, config_entry, device_uuid, SODIUM_RAW_DESC),
         ]
     )

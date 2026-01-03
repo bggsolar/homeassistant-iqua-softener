@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
+import math
 from typing import Any, Dict, Optional
 
 from homeassistant import config_entries, core
@@ -34,6 +35,11 @@ from .const import (
     HOUSE_UNIT_MODE_M3,
     HOUSE_UNIT_MODE_L,
     HOUSE_UNIT_MODE_FACTOR,
+    CONF_RAW_SODIUM_MG_L,
+    DEFAULT_RAW_SODIUM_MG_L,
+    SODIUM_MG_PER_DH,
+    SODIUM_LIMIT_MG_L,
+    EWMA_TAU_SECONDS,
 )
 from .coordinator import IquaSoftenerCoordinator
 
@@ -307,6 +313,33 @@ def _kv_first_value(
             if str(sub).lower() in lk:
                 return raw_v
     return None
+
+# ---------- EWMA (Exponential Moving Average) helpers ----------
+
+def _ewma_update(state: dict[str, Any], x: float, now_ts: float, tau_seconds: float) -> float:
+    """Continuous-time EWMA update.
+
+    state: {'value': float|None, 'ts': float|None}
+    x: new sample
+    now_ts: current timestamp (seconds)
+    tau_seconds: time constant
+    """
+    prev = state.get('value')
+    prev_ts = state.get('ts')
+    if prev is None or prev_ts is None:
+        state['value'] = float(x)
+        state['ts'] = float(now_ts)
+        return float(x)
+    dt = max(float(now_ts) - float(prev_ts), 0.0)
+    if dt <= 0.0 or tau_seconds <= 0:
+        # no time advanced; keep previous value
+        return float(prev)
+    # alpha = 1 - exp(-dt/tau)
+    alpha = 1.0 - math.exp(-dt / float(tau_seconds))
+    new_val = float(prev) + alpha * (float(x) - float(prev))
+    state['value'] = new_val
+    state['ts'] = float(now_ts)
+    return new_val
 
 
 def _salt_monitor_to_percent(raw: Any) -> Optional[float]:
@@ -903,6 +936,146 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
         }
 
 
+
+class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
+    """EWMA-smoothed effective outlet hardness (°dH).
+
+    Uses today's mixing ratio (house vs. softened daily volumes) as input and applies
+    an exponential moving average to reduce jumps between polls.
+    """
+
+    def __init__(
+        self,
+        *args,
+        house_daily: IquaDailyCounterSensor,
+        delta_daily: IquaDailyCounterSensor,
+        ewma_state: dict[str, Any],
+        tau_seconds: float,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._house_daily = house_daily
+        self._delta_daily = delta_daily
+        self._ewma_state = ewma_state
+        self._tau_seconds = float(tau_seconds)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last and last.state not in (None, "unknown", "unavailable"):
+            try:
+                v = float(str(last.state).replace(",", "."))
+                # initialize EWMA state with restored value
+                self._ewma_state["value"] = v
+                self._ewma_state["ts"] = datetime.utcnow().timestamp()
+            except Exception:
+                pass
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        raw_h, soft_h, err = self._read_hardness_inputs()
+        if err:
+            self._calc_status = "disabled"
+            self._calc_reason = err
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = self._base_attrs()
+            return
+
+        # Ensure daily sensors are updated from the same coordinator tick
+        self._house_daily.update_from_data(data)
+        self._delta_daily.update_from_data(data)
+
+        house_today = _parse_optional_float(self._house_daily.native_value)
+        delta_today = _parse_optional_float(self._delta_daily.native_value)
+        if house_today is None or house_today <= 0 or delta_today is None:
+            self._calc_status = "disabled"
+            self._calc_reason = "missing_daily_volumes"
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h}
+            return
+
+        roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
+        h_eff = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
+
+        now_ts = datetime.utcnow().timestamp()
+        h_smooth = _ewma_update(self._ewma_state, float(h_eff), now_ts, self._tau_seconds)
+
+        self._attr_native_value = _round(h_smooth, 2)
+        self._attr_extra_state_attributes = {
+            **self._base_attrs(),
+            "raw_hardness_dh": raw_h,
+            "softened_hardness_dh": soft_h,
+            "raw_fraction": _round(roh_frac, 4),
+            "sample_effective_hardness_dh": _round(h_eff, 2),
+            "ewma_tau_seconds": self._tau_seconds,
+        }
+
+
+class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
+    """Compute effective sodium concentration (mg/L) based on effective hardness reduction.
+
+    Uses the EWMA-smoothed effective hardness when available.
+    """
+
+    def __init__(
+        self,
+        *args,
+        house_daily: IquaDailyCounterSensor,
+        delta_daily: IquaDailyCounterSensor,
+        ewma_state: dict[str, Any],
+        raw_sodium_mg_l: float,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._house_daily = house_daily
+        self._delta_daily = delta_daily
+        self._ewma_state = ewma_state
+        self._raw_sodium_mg_l = float(raw_sodium_mg_l)
+
+    def update_from_data(self, data: Dict[str, Any]) -> None:
+        self._calc_status = "enabled"
+        self._calc_reason = "ok"
+
+        raw_h, soft_h, err = self._read_hardness_inputs()
+        if err:
+            self._calc_status = "disabled"
+            self._calc_reason = err
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = self._base_attrs()
+            return
+
+        # Use smoothed hardness if initialized; otherwise compute a sample from today's mixing.
+        h_eff_smooth = _parse_optional_float(self._ewma_state.get("value"))
+        if h_eff_smooth is None:
+            self._house_daily.update_from_data(data)
+            self._delta_daily.update_from_data(data)
+            house_today = _parse_optional_float(self._house_daily.native_value)
+            delta_today = _parse_optional_float(self._delta_daily.native_value)
+            if house_today is None or house_today <= 0 or delta_today is None:
+                self._calc_status = "disabled"
+                self._calc_reason = "missing_daily_volumes"
+                self._attr_native_value = None
+                self._attr_extra_state_attributes = self._base_attrs()
+                return
+            roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
+            h_eff_smooth = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
+
+        removed_dh = max(float(raw_h) - float(h_eff_smooth), 0.0)
+        na_eff = float(self._raw_sodium_mg_l) + (removed_dh * float(SODIUM_MG_PER_DH))
+
+        self._attr_native_value = _round(na_eff, 1)
+        self._attr_extra_state_attributes = {
+            **self._base_attrs(),
+            "raw_sodium_mg_l": self._raw_sodium_mg_l,
+            "raw_hardness_dh": raw_h,
+            "effective_hardness_dh_used": _round(float(h_eff_smooth), 2),
+            "removed_hardness_dh": _round(removed_dh, 2),
+            "sodium_mg_per_dh": float(SODIUM_MG_PER_DH),
+            "sodium_limit_mg_l": float(SODIUM_LIMIT_MG_L),
+        }
+
 class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
     """Compute raw-water fraction (mixing ratio) for today's water usage.
 
@@ -1007,6 +1180,11 @@ async def async_setup_entry(
     house_factor = merged.get(CONF_HOUSE_WATERMETER_FACTOR)
     raw_hardness_dh = merged.get(CONF_RAW_HARDNESS_DH)
     softened_hardness_dh = merged.get(CONF_SOFTENED_HARDNESS_DH)
+    raw_sodium_mg_l = merged.get(CONF_RAW_SODIUM_MG_L, DEFAULT_RAW_SODIUM_MG_L)
+
+    # Shared EWMA runtime state (in-memory). Smoothed sensor restores its last value on startup.
+    entry_runtime = hass.data.setdefault(DOMAIN, {}).setdefault(config_entry.entry_id, {})
+    ewma_state = entry_runtime.setdefault("ewma", {}).setdefault("effective_hardness", {"value": None, "ts": None})
 
     # Provide a sensible default for raw hardness (user requested: 22.2 °dH).
     # Rest hardness remains optional; if missing/invalid, treated hardness calculation is disabled.
@@ -1759,6 +1937,51 @@ IquaKVSensor(
     )
 
 
+    effective_hardness_smoothed = IquaEffectiveHardnessSmoothedSensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="effective_hardness_smoothed_dh",
+            translation_key="effective_hardness_smoothed_dh",
+            native_unit_of_measurement="°dH",
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:chart-bell-curve",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        house_daily=house_daily_l,
+        delta_daily=delta_daily_l,
+        ewma_state=ewma_state,
+        tau_seconds=EWMA_TAU_SECONDS,
+    )
+
+    effective_sodium = IquaEffectiveSodiumSensor(
+        coordinator,
+        device_uuid,
+        SensorEntityDescription(
+            key="effective_sodium_mg_l",
+            translation_key="effective_sodium_mg_l",
+            native_unit_of_measurement="mg/L",
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:shaker-outline",
+            entity_registry_enabled_default=True,
+        ),
+        house_entity_id=house_entity_id,
+        house_unit_mode=house_unit_mode,
+        house_factor=house_factor,
+        raw_hardness_dh=raw_hardness_dh,
+        softened_hardness_dh=softened_hardness_dh,
+        house_daily=house_daily_l,
+        delta_daily=delta_daily_l,
+        ewma_state=ewma_state,
+        raw_sodium_mg_l=float(raw_sodium_mg_l),
+    )
+
+
     sensors.extend(
         [
             house_total_l_sensor,
@@ -1768,6 +1991,8 @@ IquaKVSensor(
             treated_hardness_daily,
             raw_fraction_daily,
             softened_fraction_daily,
+            effective_hardness_smoothed,
+            effective_sodium,
         ]
     )
 

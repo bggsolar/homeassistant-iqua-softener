@@ -99,3 +99,26 @@ Die Integration berechnet **ausschließlich Tageswerte ("heute")**, um unterschi
 - **Effektive Härte heute (°dH)** = Rohwasserhärte × Rohwasseranteil
 
 > Annahme: Das durch den Ionentauscher gelaufene Wasser wird mit **0 °dH** angenommen. Falls du eine abweichende Weichwasserhärte berücksichtigen möchtest, kann der Wert **Weichwasserhärte (°dH)** am Gerät gesetzt werden (Default: 0.0).
+## Abgeleitete Werte: Effektive Härte, Verschnitt und Natrium
+
+### Effektive Härte (geglättet)
+Zusätzlich zur täglichen Berechnung der effektiven Härte stellt die Integration einen **geglätteten (EWMA)** Sensor bereit
+(**Zeitkonstante ~60 Minuten**). Das reduziert Sprünge zwischen Poll-Intervallen und liefert einen stabileren „Ist“-Wert.
+
+### Natrium (mg/L) und Grenzwert
+Bei Ionenaustausch-Enthärtung steigt der Natriumgehalt abhängig von der **Enthärtungsleistung (Δ°dH)**.
+
+Die Integration berechnet den effektiven Natriumgehalt am Ausgang (mg/L) aus:
+- *Natrium im Rohwasser* (konfigurierbarer Wert, Standard 69,2 mg/L)
+- *Rohwasserhärte* (°dH)
+- *Effektive Härte (geglättet)* (°dH)
+
+Formel:
+`Na_eff = Na_roh + (H_roh - H_eff) * 8`
+
+Hinweise/Quellen:
+- LEYCOsoft PRO Serviceanleitung: „Um die Wasserhärte um 1 °dH zu verringern, wird **8 mg/L Natrium** zugegeben; Grenzwert **200 mg/L**.“
+- Grenzwert Natrium im Trinkwasser: **200 mg/L** (Trinkwasserverordnung).
+
+Die Integration stellt außerdem einen **Binary Sensor** bereit, der `on` wird, wenn `Na_eff > 200 mg/L`.
+

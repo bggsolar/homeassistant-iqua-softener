@@ -13,7 +13,16 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    CONF_DEVICE_UUID,
+    CONF_RAW_HARDNESS_DH,
+    CONF_SOFTENED_HARDNESS_DH,
+    CONF_RAW_SODIUM_MG_L,
+    DEFAULT_RAW_SODIUM_MG_L,
+    SODIUM_MG_PER_DH,
+    SODIUM_LIMIT_MG_L,
+)
 from .coordinator import IquaSoftenerCoordinator
 
 
@@ -38,6 +47,22 @@ def _bool(v: Any) -> Optional[bool]:
     except Exception:
         return None
 
+def _float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        s = str(v).strip()
+    except Exception:
+        return None
+    if not s:
+        return None
+    try:
+        return float(s.replace(",", "."))
+    except Exception:
+        return None
+
 
 @dataclass(frozen=True, kw_only=True)
 class IquaBinarySensorEntityDescription(BinarySensorEntityDescription):
@@ -58,6 +83,104 @@ BINARY_SENSORS: tuple[IquaBinarySensorEntityDescription, ...] = (
     ),
 )
 
+
+
+@dataclass(frozen=True, kw_only=True)
+class IquaBinaryDescription(BinarySensorEntityDescription):
+    pass
+
+
+SODIUM_LIMIT_DESC = IquaBinaryDescription(
+    key="sodium_limit_exceeded",
+    translation_key="sodium_limit_exceeded",
+    icon="mdi:alert-circle",
+)
+
+
+class IquaSodiumLimitBinarySensor(CoordinatorEntity[IquaSoftenerCoordinator], BinarySensorEntity):
+    """Binary sensor: sodium limit exceeded (based on smoothed effective hardness)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: IquaSoftenerCoordinator,
+        device_uuid: str,
+        entry: ConfigEntry,
+        description: BinarySensorEntityDescription,
+        raw_hardness_dh: Any,
+        softened_hardness_dh: Any,
+        raw_sodium_mg_l: Any,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._device_uuid = device_uuid
+        self._entry = entry
+        self._raw_hardness_opt = raw_hardness_dh
+        self._soft_hardness_opt = softened_hardness_dh
+        self._raw_sodium_opt = raw_sodium_mg_l
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_uuid)},
+            name="iQua Softener",
+            manufacturer="LEYCO",
+            model="LEYCOsoft PRO",
+        )
+        self._attr_unique_id = f"{device_uuid}_{description.key}"
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success
+
+    def _get_ewma_value(self) -> Optional[float]:
+        entry_runtime = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        ewma = entry_runtime.get("ewma", {}).get("effective_hardness", {})
+        return _float(ewma.get("value"))
+
+    def _read_hardness(self) -> tuple[Optional[float], Optional[float]]:
+        raw = _float(self._raw_hardness_opt)
+        soft = _float(self._soft_hardness_opt)
+        if soft is None:
+            soft = 0.0
+        return raw, soft
+
+    @property
+    def is_on(self) -> Optional[bool]:
+        raw_h, soft_h = self._read_hardness()
+        if raw_h is None:
+            return None
+        h_eff = self._get_ewma_value()
+        if h_eff is None:
+            return None
+
+        na_raw = _float(self._raw_sodium_opt)
+        if na_raw is None:
+            na_raw = float(DEFAULT_RAW_SODIUM_MG_L)
+
+        removed_dh = max(float(raw_h) - float(h_eff), 0.0)
+        na_eff = float(na_raw) + removed_dh * float(SODIUM_MG_PER_DH)
+        return na_eff > float(SODIUM_LIMIT_MG_L)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        raw_h, soft_h = self._read_hardness()
+        h_eff = self._get_ewma_value()
+        na_raw = _float(self._raw_sodium_opt)
+        if na_raw is None:
+            na_raw = float(DEFAULT_RAW_SODIUM_MG_L)
+
+        attrs: dict[str, Any] = {
+            "raw_hardness_dh": raw_h,
+            "effective_hardness_smoothed_dh": h_eff,
+            "raw_sodium_mg_l": na_raw,
+            "sodium_mg_per_dh": float(SODIUM_MG_PER_DH),
+            "sodium_limit_mg_l": float(SODIUM_LIMIT_MG_L),
+        }
+        if raw_h is not None and h_eff is not None:
+            removed_dh = max(float(raw_h) - float(h_eff), 0.0)
+            attrs["removed_hardness_dh"] = round(removed_dh, 2)
+            attrs["effective_sodium_mg_l"] = round(float(na_raw) + removed_dh * float(SODIUM_MG_PER_DH), 1)
+        return attrs
 
 async def async_setup_entry(
     hass: HomeAssistant,

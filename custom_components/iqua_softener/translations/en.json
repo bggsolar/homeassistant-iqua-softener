@@ -4,6 +4,9 @@
       "regeneration_running": {
         "name": "Regeneration running"
       },
+      "sodium_limit_exceeded": {
+        "name": "Sodium limit exceeded"
+      },
       "treated_capacity_ist_ready": {
         "name": "Softening capacity calculated"
       }
@@ -11,6 +14,9 @@
     "number": {
       "raw_hardness_dh": {
         "name": "Raw water hardness (°dH)"
+      },
+      "raw_sodium_mg_l": {
+        "name": "Raw water sodium"
       },
       "softened_hardness_dh": {
         "name": "Soft water hardness (°dH)"
@@ -70,6 +76,12 @@
       },
       "delta_water_daily_l": {
         "name": "Raw water today (L)"
+      },
+      "effective_hardness_smoothed_dh": {
+        "name": "Effective hardness (smoothed)"
+      },
+      "effective_sodium_mg_l": {
+        "name": "Effective sodium concentration"
       },
       "functional_computer_board": {
         "name": "Computer board"

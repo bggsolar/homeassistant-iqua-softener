@@ -4,6 +4,9 @@
       "regeneration_running": {
         "name": "Regeneration läuft"
       },
+      "sodium_limit_exceeded": {
+        "name": "Natrium-Grenzwert überschritten"
+      },
       "treated_capacity_ist_ready": {
         "name": "Enthärtungskapazität IST berechnet"
       }
@@ -11,6 +14,9 @@
     "number": {
       "raw_hardness_dh": {
         "name": "Rohwasserhärte (°dH)"
+      },
+      "raw_sodium_mg_l": {
+        "name": "Natrium im Rohwasser"
       },
       "softened_hardness_dh": {
         "name": "Weichwasserhärte (°dH)"
@@ -70,6 +76,12 @@
       },
       "delta_water_daily_l": {
         "name": "Rohwasser heute (L)"
+      },
+      "effective_hardness_smoothed_dh": {
+        "name": "Effektive Härte (geglättet)"
+      },
+      "effective_sodium_mg_l": {
+        "name": "Effektiver Natriumgehalt"
       },
       "functional_computer_board": {
         "name": "Steuerplatine"

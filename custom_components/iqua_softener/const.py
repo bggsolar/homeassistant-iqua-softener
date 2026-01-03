@@ -26,3 +26,12 @@ HOUSE_UNIT_MODE_FACTOR = "factor"
 
 # Unit strings (Home Assistant shows these as text units)
 VOLUME_FLOW_RATE_LITERS_PER_MINUTE = "L/min"
+
+# Sodium calculation (LEYCOsoft PRO): sodium increase per removed hardness
+CONF_RAW_SODIUM_MG_L = "raw_sodium_mg_l"
+DEFAULT_RAW_SODIUM_MG_L = 69.2
+SODIUM_MG_PER_DH = 8.0  # +8 mg/L sodium per 1 °dH hardness reduction (LEYCO service guide)
+SODIUM_LIMIT_MG_L = 200.0  # German drinking water ordinance limit for sodium (mg/L)
+
+# EWMA smoothing (effective hardness & sodium) for stable values between polls
+EWMA_TAU_SECONDS = 60 * 60  # ~60 minutes time constant
