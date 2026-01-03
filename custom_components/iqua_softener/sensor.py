@@ -951,7 +951,7 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
 
 # ---------- Setup ----------
 
-async def 
+
 
 class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
     """Compute softened-water fraction (share of softened water) for today's usage in percent.
@@ -992,7 +992,7 @@ class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
         self._attr_extra_state_attributes = {**self._base_attrs(), "raw_fraction_percent": _round(roh_frac * 100.0, 1)}
 
 
-async_setup_entry(
+async def async_setup_entry(
     hass: core.HomeAssistant,
     config_entry: config_entries.ConfigEntry,
     async_add_entities,
