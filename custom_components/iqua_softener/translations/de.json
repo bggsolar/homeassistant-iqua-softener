@@ -71,9 +71,6 @@
       "delta_water_daily_l": {
         "name": "Differenz heute (Haus - Enthärter)"
       },
-      "delta_water_total_l": {
-        "name": "Differenz gesamt (Haus - Enthärter)"
-      },
       "functional_computer_board": {
         "name": "Steuerplatine"
       },
