@@ -99,25 +99,24 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         raise ConfigEntryNotReady from err
 
 
-    # After the first successful refresh we know manufacturing_information.pwa.
-    # Update entry title and device name from UUID to PWA to keep UI naming consistent.
+    # After the first successful refresh we know manufacturing_information.pwa/model.
+    # Keep the config entry title as "iQua <uuid>" (stable), but rename the *device* in HA
+    # to "iQua <model> <pwa>" for a nicer UI prefix in entity names.
     try:
         kv = (coordinator.data or {}).get("kv") or {}
         pwa_raw = kv.get("manufacturing_information.pwa")
+        model_raw = kv.get("manufacturing_information.model") or kv.get("manufacturing_information.model_code")
         pwa = _slugify_pwa(pwa_raw) if pwa_raw else None
+        model = str(model_raw).strip() if model_raw else None
         if pwa:
-            desired_name = f"iQua {pwa}"
-            # Update config entry title (Devices & Services list)
-            if entry.title and str(device_uuid) in entry.title:
-                hass.config_entries.async_update_entry(entry, title=desired_name)
-            # Update device registry name (prefix shown in entity UI)
+            desired_device_name = f"iQua {model} {pwa}".strip() if model else f"iQua {pwa}"
             dev_reg = dr.async_get(hass)
             for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+                # Only auto-rename when the existing device name still contains the UUID
                 if dev.name and str(device_uuid) in dev.name:
-                    dev_reg.async_update_device(dev.id, name=desired_name)
+                    dev_reg.async_update_device(dev.id, name=desired_device_name)
     except Exception as err:
-        _LOGGER.debug("Could not update entry/device name to PWA: %s", err)
-
+        _LOGGER.debug("Could not update device name to model/pwa: %s", err)
     # Store runtime objects in hass.data (but don't rely on hass.data for config values)
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
