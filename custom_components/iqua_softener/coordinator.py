@@ -16,6 +16,21 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+def _to_float(val):
+    """Best-effort float conversion (handles strings with comma decimals)."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        s = str(val).strip().replace(" ", "")
+        if s.count(",") == 1 and s.count(".") == 0:
+            s = s.replace(",", ".")
+        return float(s)
+    except Exception:
+        return None
+
+
 _STORAGE_VERSION = 2
 _STORAGE_KEY_FMT = f"{DOMAIN}_baseline_{'{'}device_uuid{'}'}"
 
@@ -582,7 +597,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         cloud_days_since = v
                         break
             try:
-                cloud_days_since_f = float(cloud_days_since) if cloud_days_since is not None else None
+                cloud_days_since_f = _to_float(cloud_days_since) if cloud_days_since is not None else None
             except Exception:
                 cloud_days_since_f = None
 
@@ -628,9 +643,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 try:
                     if cloud_days_since_f is not None:
                         # Prefer authoritative cloud/enriched counter when present
-                        kv["calculated.days_since_last_regen_days"] = max(0, int(float(cloud_days_since_f)))
+                        kv["calculated.days_since_last_regen_days"] = max(0, int(_to_float(cloud_days_since_f)))
                         # Keep local timestamp in sync for any other calculations that rely on it
-                        self._last_regen_end = now_dt - timedelta(days=float(cloud_days_since_f))
+                        self._last_regen_end = now_dt - timedelta(days=_to_float(cloud_days_since_f))
                     else:
                         days = (now_dt - self._last_regen_end).total_seconds() / 86400.0
                         kv["calculated.days_since_last_regen_days"] = max(0.0, days)
@@ -654,6 +669,11 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 last30 = [float(it["liters"]) for it in hist[-30:]]
                 kv["calculated.average_daily_use_l_30d"] = (sum(last30) / len(last30)) if last30 else None
 
+
+            # Ensure avg daily use is available even without local history
+            if kv.get("calculated.average_daily_use_l") is None:
+                kv["calculated.average_daily_use_l"] = _to_float(kv.get("water_usage.average_daily_use"))
+
             # Restart fallback / baseline bootstrap:
             # If we are not IST-ready yet, try to bootstrap a plausible remaining-capacity value from
             # the cloud-enriched days_since_last_recharge and the device's treated-water 'today' counter.
@@ -669,7 +689,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         total_l_now_f = None
 
                     if total_l_now_f is not None and total_l_now_f > 0:
-                        days_f = float(cloud_days_since_f)
+                        days_f = _to_float(cloud_days_since_f)
                         # Only apply when regeneration is not in progress (0 means in/just after recharge).
                         if days_f >= 1.0:
                             # Today's treated usage from device counter (liters).
@@ -731,8 +751,8 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # 2) Fallback: derive from time-in-operation / total regenerations (cloud-provided counters)
             if avg_days_between is None:
                 try:
-                    op_days = float(kv.get("regenerations.time_in_operation_days")) if kv.get("regenerations.time_in_operation_days") is not None else None
-                    reg_total = float(kv.get("regenerations.total_regens")) if kv.get("regenerations.total_regens") is not None else None
+                    op_days = _to_float(kv.get("regenerations.time_in_operation_days"))
+                    reg_total = _to_float(kv.get("regenerations.total_regens"))
                     if op_days is not None and reg_total is not None and reg_total > 0:
                         avg_days_between = op_days / reg_total
                 except Exception:
@@ -751,7 +771,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         cloud_avg = kv.get(k)
                         break
                 try:
-                    avg_days_between = float(cloud_avg) if cloud_avg is not None else None
+                    avg_days_between = _to_float(cloud_avg)
                 except Exception:
                     avg_days_between = None
 
