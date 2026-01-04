@@ -89,6 +89,12 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         password=str(password),
         device_uuid=str(device_uuid),
     )
+    # Store coordinator for platforms
+    hass.data[DOMAIN][entry.entry_id] = {
+        "coordinator": coordinator,
+        "device_uuid": str(device_uuid),
+    }
+
 
     try:
         await coordinator.async_load_baseline()
