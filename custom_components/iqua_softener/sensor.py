@@ -496,6 +496,7 @@ class IquaTimestampSensor(IquaBaseSensor):
         self,
         coordinator: IquaSoftenerCoordinator,
         device_uuid: str,
+        pwa_key: str,
         description: SensorEntityDescription,
         canonical_kv_key: str,
         *,

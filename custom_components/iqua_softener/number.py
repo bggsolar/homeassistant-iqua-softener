@@ -135,6 +135,7 @@ async def async_setup_entry(
     cfg = hass.data[DOMAIN][config_entry.entry_id]
     device_uuid: str = cfg[CONF_DEVICE_UUID]
 
+    coordinator = cfg['coordinator']
     data = coordinator.data or {}
     kv = data.get('kv', {}) if isinstance(data, dict) else {}
     pwa_key = _pwa_key_from_kv(kv, device_uuid)

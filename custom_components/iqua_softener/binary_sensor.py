@@ -205,9 +205,12 @@ async def async_setup_entry(
     coordinator: IquaSoftenerCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     device_uuid: str = entry.data.get("device_uuid") or entry.data.get("device") or ""
 
+    data = coordinator.data or {}
+    kv = data.get("kv", {}) if isinstance(data, dict) else {}
+    pwa_key = _pwa_key_from_kv(kv, device_uuid)
     # Always create entities (state may be unknown until first poll).
     entities: list[BinarySensorEntity] = [
-        IquaCoordinatorBinarySensor(coordinator, device_uuid, desc) for desc in BINARY_SENSORS
+        IquaCoordinatorBinarySensor(coordinator, device_uuid, pwa_key, desc) for desc in BINARY_SENSORS
     ]
     async_add_entities(entities)
 
@@ -219,6 +222,7 @@ class IquaCoordinatorBinarySensor(CoordinatorEntity[IquaSoftenerCoordinator], Bi
         self,
         coordinator: IquaSoftenerCoordinator,
         device_uuid: str,
+        pwa_key: str,
         description: IquaBinarySensorEntityDescription,
     ) -> None:
         super().__init__(coordinator)
