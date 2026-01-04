@@ -716,18 +716,34 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 pass
 
             # Average days between regenerations
+            avg_days_between: float | None = None
+
+            # 1) Prefer local regeneration end history (last up to 5 intervals)
             if len(self._regen_end_history) >= 2:
                 hist_ts = sorted([d for d in self._regen_end_history if d is not None])
                 diffs = [(hist_ts[i] - hist_ts[i - 1]).total_seconds() / 86400.0 for i in range(1, len(hist_ts))]
                 last_int = [d for d in diffs[-5:] if d is not None and d >= 0]
-                kv["calculated.average_days_between_regen_days"] = (sum(last_int) / len(last_int)) if last_int else None
-                if kv.get("calculated.average_days_between_regen_days") is None:
-                    cloud_avg = kv.get("regenerations.average_days_between_recharge_days")
-                    try:
-                        kv["calculated.average_days_between_regen_days"] = float(cloud_avg) if cloud_avg is not None else None
-                    except Exception:
-                        kv["calculated.average_days_between_regen_days"] = None
+                avg_days_between = (sum(last_int) / len(last_int)) if last_int else None
 
+            # 2) Fallback: derive from time-in-operation / total regenerations (cloud-provided counters)
+            if avg_days_between is None:
+                try:
+                    op_days = float(kv.get("regenerations.time_in_operation_days")) if kv.get("regenerations.time_in_operation_days") is not None else None
+                    reg_total = float(kv.get("regenerations.total_regens")) if kv.get("regenerations.total_regens") is not None else None
+                    if op_days is not None and reg_total is not None and reg_total > 0:
+                        avg_days_between = op_days / reg_total
+                except Exception:
+                    avg_days_between = None
+
+            # 3) Fallback: use cloud-provided average (if available)
+            if avg_days_between is None:
+                cloud_avg = kv.get("regenerations.average_days_between_recharge_days")
+                try:
+                    avg_days_between = float(cloud_avg) if cloud_avg is not None else None
+                except Exception:
+                    avg_days_between = None
+
+            kv["calculated.average_days_between_regen_days"] = avg_days_between
 
         elif self._baseline_treated_total_l is not None:
             kv["calculated.baseline_treated_total_l"] = self._baseline_treated_total_l

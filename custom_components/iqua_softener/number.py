@@ -35,6 +35,47 @@ def _get_opt_float(value: Any) -> float | None:
         return None
 
 
+def _kv_first_value(kv: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    """Return the first non-None value for the given keys."""
+    for k in keys:
+        if k in kv and kv.get(k) is not None:
+            return kv.get(k)
+    return None
+
+
+def _cloud_hardness_dh_from_kv(kv: dict[str, Any]) -> float | None:
+    """Extract hardness from KV (same source as treated capacity calc) and convert to °dH.
+
+    The cloud may provide hardness either as grains/gal (gpg) or ppm (mg/L CaCO3).
+    We follow the same heuristic as in sensor capacity calculation:
+      - values > ~60 are treated as ppm
+      - otherwise treated as gpg and converted to ppm via *17.1
+    Then convert ppm -> °dH (1 °dH ≈ 17.848 mg/L CaCO3).
+    """
+    raw = _kv_first_value(
+        kv,
+        (
+            "program.hardness_grains",
+            "program.hardness",
+            "program.hardness_ppm",
+            "hardness_grains",
+            "hardness",
+            "hardness_ppm",
+        ),
+    )
+    try:
+        hard = float(raw)
+    except Exception:
+        return None
+    if hard <= 0:
+        return None
+
+    # Normalize to ppm (mg/L CaCO3)
+    ppm = hard / 17.1 if hard > 60 else hard * 17.1
+    dh = ppm / 17.848
+    # Keep one decimal like typical water hardness values
+    return round(dh, 1)
+
 @dataclass(frozen=True, kw_only=True)
 class IquaNumberDescription(NumberEntityDescription):
     option_key: str
@@ -139,7 +180,20 @@ async def async_setup_entry(
     changed = False
 
     if _get_opt_float(opts.get(CONF_RAW_HARDNESS_DH)) is None:
-        opts[CONF_RAW_HARDNESS_DH] = DEFAULT_RAW_HARDNESS_DH
+        # Prefer cloud hardness (same KV source used for treated capacity calculation) as initial default.
+        cfg = hass.data[DOMAIN][config_entry.entry_id]
+        coordinator = cfg.get("coordinator")
+        cloud_dh = None
+        try:
+            if coordinator and getattr(coordinator, "data", None):
+                kv = coordinator.data.get("kv") or {}
+                if isinstance(kv, dict):
+                    cloud_dh = _cloud_hardness_dh_from_kv(kv)
+        except Exception as err:
+            _LOGGER.debug("Failed to derive cloud hardness default: %s", err)
+
+        opts[CONF_RAW_HARDNESS_DH] = cloud_dh if cloud_dh is not None else DEFAULT_RAW_HARDNESS_DH
+        changed = True
         changed = True
 
     if _get_opt_float(opts.get(CONF_SOFTENED_HARDNESS_DH)) is None:
