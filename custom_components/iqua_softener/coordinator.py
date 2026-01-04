@@ -550,6 +550,32 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Derived metrics (local) based on persisted history
             now_dt = dt_util.now()
+
+            # Prefer cloud 'enriched' days_since_last_recharge when present (it is not always included).
+            cloud_days_since = None
+            # Try explicit known keys first
+            for k in (
+                "enriched_data.days_since_last_recharge",
+                "enriched.days_since_last_recharge",
+                "enriched.days_since_last_recharge_days",
+                "enriched_data.days_since_last_recharge_days",
+                "days_since_last_recharge",
+                "days_since_last_recharge_days",
+            ):
+                if kv.get(k) is not None:
+                    cloud_days_since = kv.get(k)
+                    break
+            # As a fallback, scan for any key that contains 'days_since_last_recharge'
+            if cloud_days_since is None:
+                for k, v in kv.items():
+                    if isinstance(k, str) and "days_since_last_recharge" in k and v is not None:
+                        cloud_days_since = v
+                        break
+            try:
+                cloud_days_since_f = float(cloud_days_since) if cloud_days_since is not None else None
+            except Exception:
+                cloud_days_since_f = None
+
             if self._last_regen_end is None:
                 cloud_days = kv.get("regenerations.time_since_last_recharge_days")
                 try:
@@ -561,10 +587,43 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     # Do not backfill full history; just seed last_regen_end for immediate availability.
                     await self._async_save_baseline()
 
-            if self._last_regen_end is not None:
+
+
+            # If the enriched cloud counter is present, we can also detect a recharge event by a drop in this value.
+            if cloud_days_since_f is not None:
+                prev_cloud = getattr(self, "_cloud_days_since_last_recharge_prev", None)
+                # Store current for next cycle
+                self._cloud_days_since_last_recharge_prev = cloud_days_since_f
+                # A significant drop indicates a new recharge just completed.
+                if prev_cloud is not None and cloud_days_since_f + 0.5 < float(prev_cloud):
+                    _LOGGER.debug(
+                        "Detected recharge event via days_since_last_recharge drop: %.2f -> %.2f",
+                        float(prev_cloud), float(cloud_days_since_f)
+                    )
+                    # Reset local regen timestamp and history
+                    self._last_regen_end = now_dt
+                    self._regen_end_history.append(now_dt)
+                    self._regen_end_history = self._regen_end_history[-30:]
+                    # Reset capacity-delta baseline so remaining capacity starts fresh after recharge
+                    if total_l is not None and treated_total_l is not None:
+                        try:
+                            self._capacity_remaining_l = float(total_l)
+                            self._water_total_last_l = float(treated_total_l)
+                            self._capacity_ist_ready = True
+                        except Exception:
+                            pass
+                    await self._async_save_baseline()
+
+            if self._last_regen_end is not None or cloud_days_since_f is not None:
                 try:
-                    days = (now_dt - self._last_regen_end).total_seconds() / 86400.0
-                    kv["calculated.days_since_last_regen_days"] = max(0.0, days)
+                    if cloud_days_since_f is not None:
+                        # Prefer authoritative cloud/enriched counter when present
+                        kv["calculated.days_since_last_regen_days"] = max(0.0, float(cloud_days_since_f))
+                        # Keep local timestamp in sync for any other calculations that rely on it
+                        self._last_regen_end = now_dt - timedelta(days=float(cloud_days_since_f))
+                    else:
+                        days = (now_dt - self._last_regen_end).total_seconds() / 86400.0
+                        kv["calculated.days_since_last_regen_days"] = max(0.0, days)
                 except Exception:
                     kv["calculated.days_since_last_regen_days"] = None
 
