@@ -1170,7 +1170,12 @@ async def async_setup_entry(
     config_entry: config_entries.ConfigEntry,
     async_add_entities,
 ) -> None:
-    cfg = hass.data[DOMAIN][config_entry.entry_id]
+    cfg = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+    if cfg is None:
+        # Fallback: some HA reload paths may call platform setup before hass.data is populated
+        cfg = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+    if cfg is None:
+        raise RuntimeError('iQua Softener coordinator not initialized')
     coordinator: IquaSoftenerCoordinator = cfg["coordinator"]
     device_uuid: str = cfg[CONF_DEVICE_UUID]
 

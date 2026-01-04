@@ -187,7 +187,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: IquaSoftenerCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    cfg = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if cfg is None:
+        cfg = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+    if cfg is None:
+        raise RuntimeError('iQua Softener coordinator not initialized')
+    coordinator: IquaSoftenerCoordinator = cfg["coordinator"]
     device_uuid: str = entry.data.get("device_uuid") or entry.data.get("device") or ""
 
     # Always create entities (state may be unknown until first poll).

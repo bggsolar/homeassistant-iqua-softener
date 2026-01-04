@@ -92,7 +92,7 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     # Store coordinator for platforms
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
-        "device_uuid": str(device_uuid),
+        CONF_DEVICE_UUID: str(device_uuid),
     }
 
 
