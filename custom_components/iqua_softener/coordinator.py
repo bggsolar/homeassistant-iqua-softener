@@ -561,6 +561,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "enriched_data.days_since_last_recharge_days",
                 "days_since_last_recharge",
                 "days_since_last_recharge_days",
+                # Some payloads expose the authoritative value under "regenerations".
+                "regenerations.time_since_last_recharge_days",
+                "regenerations.days_since_last_recharge_days",
             ):
                 if kv.get(k) is not None:
                     cloud_days_since = kv.get(k)
@@ -737,7 +740,16 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # 3) Fallback: use cloud-provided average (if available)
             if avg_days_between is None:
-                cloud_avg = kv.get("regenerations.average_days_between_recharge_days")
+                cloud_avg = None
+                for k in (
+                    "regenerations.average_days_between_recharge_days",
+                    "regenerations.average_days_between_regen_days",
+                    "enriched.average_days_between_recharge_days",
+                    "enriched_data.average_days_between_recharge_days",
+                ):
+                    if kv.get(k) is not None:
+                        cloud_avg = kv.get(k)
+                        break
                 try:
                     avg_days_between = float(cloud_avg) if cloud_avg is not None else None
                 except Exception:
