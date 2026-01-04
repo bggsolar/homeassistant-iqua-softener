@@ -19,6 +19,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
+from homeassistant.util import slugify
 
 from .const import (
     DOMAIN,
@@ -367,6 +368,22 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
         return None
 
 
+
+
+def _pwa_key_from_kv(kv: Dict[str, Any], device_uuid: str) -> str:
+    """Build stable entity-id prefix from model + PWA serial (no index).
+
+    Example: model='Leycosoft Pro 9', pwa='7383865' -> 'leycosoft_pro_9_7383865'
+    Falls back to device_uuid if info missing.
+    """
+    model = _as_str(kv.get("manufacturing_information.model")) or ""
+    pwa = _as_str(kv.get("manufacturing_information.pwa")) or ""
+    if model and pwa:
+        return f"{slugify(model)}_{slugify(pwa)}"
+    if pwa:
+        return slugify(pwa)
+    return slugify(device_uuid)
+
 # ---------- Base classes ----------
 
 class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], ABC):
@@ -378,14 +395,19 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
         self,
         coordinator: IquaSoftenerCoordinator,
         device_uuid: str,
+        pwa_key: str,
         description: SensorEntityDescription,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._device_uuid = device_uuid
+        self._pwa_key = pwa_key
 
-        # stable unique id per device
-        self._attr_unique_id = f"{device_uuid}_{description.key}".lower()
+        # stable unique id per device (uses PWA key to keep entity-id readable)
+        self._attr_unique_id = f"{pwa_key}_{description.key}".lower()
+
+        # enforce entity_id schema: sensor.iqua_<pwa_key>_<key>
+        self.entity_id = f"sensor.iqua_{pwa_key}_{description.key}".lower()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -434,7 +456,7 @@ class IquaKVSensor(IquaBaseSensor):
         round_digits: Optional[int] = None,
         transform=None,
     ) -> None:
-        super().__init__(coordinator, device_uuid, description)
+        super().__init__(coordinator, device_uuid, pwa_key, description)
         self._k = canonical_kv_key
         self._round_digits = round_digits
         self._transform = transform
@@ -479,7 +501,7 @@ class IquaTimestampSensor(IquaBaseSensor):
         *,
         transform=None,
     ) -> None:
-        super().__init__(coordinator, device_uuid, description)
+        super().__init__(coordinator, device_uuid, pwa_key, description)
         self._k = canonical_kv_key
         # Default parser handles both ISO 8601 and iQua formats like '30/12/2025 21:38'
         self._transform = transform or _to_datetime
@@ -512,7 +534,7 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
         mode: str,
         round_digits: int = 0,
     ) -> None:
-        super().__init__(coordinator, device_uuid, description)
+        super().__init__(coordinator, device_uuid, pwa_key, description)
         self._mode = mode  # "total" or "remaining"
         self._round_digits = round_digits
         # Initialize value from the first coordinator payload
@@ -673,7 +695,7 @@ class IquaUsagePatternSensor(IquaBaseSensor):
         *,
         round_digits: int = 1,
     ) -> None:
-        super().__init__(coordinator, device_uuid, description)
+        super().__init__(coordinator, device_uuid, pwa_key, description)
         self._table_key = table_key
         self._row_label = row_label
         self._round_digits = round_digits
@@ -751,7 +773,7 @@ class IquaDerivedBaseSensor(IquaBaseSensor):
         raw_hardness_dh: Any,
         softened_hardness_dh: Any,
     ) -> None:
-        super().__init__(coordinator, device_uuid, description)
+        super().__init__(coordinator, device_uuid, pwa_key, description)
         self._house_entity_id = house_entity_id
         self._house_unit_mode = house_unit_mode
         self._house_factor = house_factor
@@ -1174,6 +1196,11 @@ async def async_setup_entry(
     coordinator: IquaSoftenerCoordinator = cfg["coordinator"]
     device_uuid: str = cfg[CONF_DEVICE_UUID]
 
+
+    data = coordinator.data or {}
+    kv = data.get("kv", {}) if isinstance(data, dict) else {}
+    pwa_key = _pwa_key_from_kv(kv, device_uuid)
+
     merged = _get_merged_entry_data(config_entry)
     house_entity_id = str(merged.get(CONF_HOUSE_WATERMETER_ENTITY) or "").strip()
     house_unit_mode = str(merged.get(CONF_HOUSE_WATERMETER_UNIT_MODE) or HOUSE_UNIT_MODE_AUTO)
@@ -1196,6 +1223,7 @@ async def async_setup_entry(
         IquaTimestampSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="last_message_received",
                 translation_key="last_message_received",
@@ -1210,6 +1238,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="capacity_remaining_percent",
                 translation_key="capacity_remaining_percent",
@@ -1224,6 +1253,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="average_capacity_remaining_at_regen_percent",
                 translation_key="average_capacity_remaining_at_regen_percent",
@@ -1239,6 +1269,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="treated_water_total_l",
                 translation_key="treated_water_total_l",
@@ -1252,6 +1283,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="untreated_water_total_l",
                 translation_key="untreated_water_total_l",
@@ -1266,6 +1298,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="water_today_l",
                 translation_key="water_today_l",
@@ -1279,6 +1312,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="average_daily_use_l",
                 translation_key="average_daily_use_l",
@@ -1293,6 +1327,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="water_totalizer_l",
                 translation_key="water_totalizer_l",
@@ -1306,6 +1341,7 @@ async def async_setup_entry(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="treated_water_available_l",
                 translation_key="treated_water_available_l",
@@ -1322,6 +1358,7 @@ async def async_setup_entry(
         IquaCalculatedCapacitySensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="calculated_treated_capacity_remaining_l",
                 translation_key="calculated_treated_capacity_remaining_l",
@@ -1335,6 +1372,7 @@ async def async_setup_entry(
         IquaCalculatedCapacitySensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="calculated_treated_capacity_remaining_percent",
                 translation_key="calculated_treated_capacity_remaining_percent",
@@ -1348,6 +1386,7 @@ async def async_setup_entry(
         IquaCalculatedCapacitySensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="calculated_treated_capacity_total_l",
                 translation_key="calculated_treated_capacity_total_l",
@@ -1402,6 +1441,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="current_flow_lpm",
                 translation_key="current_flow_lpm",
@@ -1415,6 +1455,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="peak_flow_lpm",
                 translation_key="peak_flow_lpm",
@@ -1430,6 +1471,7 @@ IquaKVSensor(
         IquaUsagePatternSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="daily_water_usage_avg_pattern_l",
                 translation_key="daily_water_usage_avg_pattern_l",
@@ -1446,6 +1488,7 @@ IquaKVSensor(
         IquaUsagePatternSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="daily_water_usage_reserved_pattern_l",
                 translation_key="daily_water_usage_reserved_pattern_l",
@@ -1465,6 +1508,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="salt_total_kg",
                 translation_key="salt_total_kg",
@@ -1477,6 +1521,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="total_salt_efficiency_ppm_per_kg",
                 translation_key="total_salt_efficiency_ppm_per_kg",
@@ -1491,6 +1536,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="salt_monitor_percent",
                 translation_key="salt_monitor_percent",
@@ -1505,6 +1551,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="out_of_salt_days",
                 translation_key="out_of_salt_days",
@@ -1520,6 +1567,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="average_salt_dose_per_recharge_kg",
                 translation_key="average_salt_dose_per_recharge_kg",
@@ -1536,6 +1584,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="total_rock_removed_kg",
                 translation_key="total_rock_removed_kg",
@@ -1549,6 +1598,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="daily_average_rock_removed_kg",
                 translation_key="daily_average_rock_removed_kg",
@@ -1562,6 +1612,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="since_regen_rock_removed_kg",
                 translation_key="since_regen_rock_removed_kg",
@@ -1577,6 +1628,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="time_in_operation_days",
                 translation_key="time_in_operation_days",
@@ -1591,6 +1643,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="total_regens",
                 translation_key="total_regens",
@@ -1604,6 +1657,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="manual_regens",
                 translation_key="manual_regens",
@@ -1617,6 +1671,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="second_backwash_cycles",
                 translation_key="second_backwash_cycles",
@@ -1630,6 +1685,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="time_since_last_recharge_days",
                 translation_key="time_since_last_recharge_days",
@@ -1644,6 +1700,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="average_days_between_recharge_days",
                 translation_key="average_days_between_recharge_days",
@@ -1661,6 +1718,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="total_power_outages",
                 translation_key="total_power_outages",
@@ -1674,6 +1732,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="total_times_power_lost",
                 translation_key="total_times_power_lost",
@@ -1687,6 +1746,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="days_since_last_time_loss",
                 translation_key="days_since_last_time_loss",
@@ -1702,6 +1762,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="longest_recorded_outage",
                 translation_key="longest_recorded_outage",
@@ -1714,6 +1775,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="functional_water_meter_sensor",
                 translation_key="functional_water_meter_sensor",
@@ -1724,6 +1786,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="functional_computer_board",
                 translation_key="functional_computer_board",
@@ -1734,6 +1797,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="functional_cord_power_supply",
                 translation_key="functional_cord_power_supply",
@@ -1746,6 +1810,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="misc_second_output",
                 translation_key="misc_second_output",
@@ -1756,6 +1821,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="misc_regeneration_enabled",
                 translation_key="misc_regeneration_enabled",
@@ -1766,6 +1832,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="misc_lockout_status",
                 translation_key="misc_lockout_status",
@@ -1778,6 +1845,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="controller_time",
                 translation_key="controller_time",
@@ -1789,6 +1857,7 @@ IquaKVSensor(
         IquaKVSensor(
             coordinator,
             device_uuid,
+            pwa_key,
             SensorEntityDescription(
                 key="regen_time_remaining",
                 translation_key="regen_time_remaining",

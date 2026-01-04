@@ -12,8 +12,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
 from .const import (
+    SODIUM_LIMIT_MG_L,
+
     DOMAIN,
     CONF_DEVICE_UUID,
     CONF_RAW_HARDNESS_DH,
@@ -24,6 +27,17 @@ from .const import (
     SODIUM_LIMIT_MG_L,
 )
 from .coordinator import IquaSoftenerCoordinator
+
+
+def _pwa_key_from_kv(kv: dict, device_uuid: str) -> str:
+    model = str(kv.get('manufacturing_information.model') or '')
+    pwa = str(kv.get('manufacturing_information.pwa') or '')
+    if model and pwa:
+        return f"{slugify(model)}_{slugify(pwa)}"
+    if pwa:
+        return slugify(pwa)
+    return slugify(device_uuid)
+
 
 
 def _bool(v: Any) -> Optional[bool]:
@@ -126,7 +140,8 @@ class IquaSodiumLimitBinarySensor(CoordinatorEntity[IquaSoftenerCoordinator], Bi
             manufacturer="LEYCO",
             model="LEYCOsoft PRO",
         )
-        self._attr_unique_id = f"{device_uuid}_{description.key}"
+        self._attr_unique_id = f"{pwa_key}_{description.key}"
+        self.entity_id = f"binary_sensor.iqua_{pwa_key}_{description.key}".lower()
 
     @property
     def available(self) -> bool:
@@ -211,7 +226,8 @@ class IquaCoordinatorBinarySensor(CoordinatorEntity[IquaSoftenerCoordinator], Bi
         self._device_uuid = device_uuid
 
         # Stable unique id per device
-        self._attr_unique_id = f"{device_uuid}_{description.key}".lower()
+        self._attr_unique_id = f"{pwa_key}_{description.key}".lower()
+        self.entity_id = f"binary_sensor.iqua_{pwa_key}_{description.key}".lower()
         self._attr_has_entity_name = True
 
     @property

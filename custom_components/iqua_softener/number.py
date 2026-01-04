@@ -102,7 +102,8 @@ class IquaOptionsNumber(NumberEntity):
         self.entity_description = description
         self._device_uuid = device_uuid
 
-        self._attr_unique_id = f"{DOMAIN}_{device_uuid}_{description.key}"
+        self._attr_unique_id = f"{DOMAIN}_{pwa_key}_{description.key}"
+        self.entity_id = f"number.iqua_{pwa_key}_{description.key}".lower()
         self._attr_device_info = {
             "identifiers": {(DOMAIN, device_uuid)},
             "name": f"iQua {device_uuid}",
@@ -133,6 +134,10 @@ async def async_setup_entry(
 ) -> None:
     cfg = hass.data[DOMAIN][config_entry.entry_id]
     device_uuid: str = cfg[CONF_DEVICE_UUID]
+
+    data = coordinator.data or {}
+    kv = data.get('kv', {}) if isinstance(data, dict) else {}
+    pwa_key = _pwa_key_from_kv(kv, device_uuid)
 
     # Ensure sensible defaults if not set yet.
     opts = dict(config_entry.options or {})
