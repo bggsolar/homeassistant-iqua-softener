@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from homeassistant import config_entries, core
+from homeassistant.helpers import device_registry as dr
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 
 from .const import (
@@ -16,6 +18,14 @@ from .coordinator import IquaSoftenerCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["sensor", "binary_sensor", "number"]
+
+
+def _slugify_pwa(value: str) -> str:
+    """Return a stable, HA-friendly slug for PWA strings."""
+    s = str(value or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
 
 
 def _get_merged_entry_data(entry: config_entries.ConfigEntry) -> dict:
@@ -87,6 +97,26 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         # Temporary API/network issues -> retry
         _LOGGER.warning("iQua Softener not ready yet: %s", err)
         raise ConfigEntryNotReady from err
+
+
+    # After the first successful refresh we know manufacturing_information.pwa.
+    # Update entry title and device name from UUID to PWA to keep UI naming consistent.
+    try:
+        kv = (coordinator.data or {}).get("kv") or {}
+        pwa_raw = kv.get("manufacturing_information.pwa")
+        pwa = _slugify_pwa(pwa_raw) if pwa_raw else None
+        if pwa:
+            desired_name = f"iQua {pwa}"
+            # Update config entry title (Devices & Services list)
+            if entry.title and str(device_uuid) in entry.title:
+                hass.config_entries.async_update_entry(entry, title=desired_name)
+            # Update device registry name (prefix shown in entity UI)
+            dev_reg = dr.async_get(hass)
+            for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+                if dev.name and str(device_uuid) in dev.name:
+                    dev_reg.async_update_device(dev.id, name=desired_name)
+    except Exception as err:
+        _LOGGER.debug("Could not update entry/device name to PWA: %s", err)
 
     # Store runtime objects in hass.data (but don't rely on hass.data for config values)
     hass.data[DOMAIN][entry.entry_id] = {

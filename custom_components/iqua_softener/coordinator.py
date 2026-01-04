@@ -644,6 +644,44 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 last30 = [float(it["liters"]) for it in hist[-30:]]
                 kv["calculated.average_daily_use_l_30d"] = (sum(last30) / len(last30)) if last30 else None
 
+            # Restart fallback: if we don't have a reliable baseline/remaining value yet,
+            # estimate remaining treated capacity based on days_since_last_recharge and usage history.
+            try:
+                if (kv.get("calculated.treated_capacity_remaining_l") is None) and (cloud_days_since_f is not None):
+                    total_l_now = kv.get("calculated.treated_capacity_total_l")
+                    try:
+                        total_l_now_f = float(total_l_now) if total_l_now is not None else None
+                    except Exception:
+                        total_l_now_f = None
+                    if total_l_now_f is not None and total_l_now_f > 0 and (self._baseline_treated_total_l is None):
+                        days_f = float(cloud_days_since_f)
+                        # Only apply when regeneration is not in progress (0 means in/just after recharge).
+                        if days_f >= 1.0:
+                            # Today's treated usage from device counter (liters).
+                            treated_today = kv.get("water_usage.water_today")
+                            try:
+                                treated_today_f = float(treated_today) if treated_today is not None else 0.0
+                            except Exception:
+                                treated_today_f = 0.0
+                            avg_day = kv.get("calculated.average_daily_use_l")
+                            try:
+                                avg_day_f = float(avg_day) if avg_day is not None else None
+                            except Exception:
+                                avg_day_f = None
+                            est_used = max(0.0, treated_today_f)
+                            if days_f > 1.0 and avg_day_f is not None and avg_day_f >= 0:
+                                est_used += max(0.0, (days_f - 1.0)) * avg_day_f
+                            remaining_est = max(0.0, min(total_l_now_f, total_l_now_f - est_used))
+                            kv["calculated.treated_capacity_remaining_l"] = remaining_est
+                            kv["calculated.treated_capacity_remaining_percent"] = (remaining_est / total_l_now_f) * 100.0
+                            kv["calculated.treated_capacity_remaining_is_estimate"] = True
+                            # Make this estimate available internally as a starting point until we
+                            # can compute the IST value from an inferred/persisted baseline.
+                            self._capacity_remaining_l = remaining_est
+                            self._capacity_ist_ready = True
+            except Exception:
+                pass
+
             # Average days between regenerations
             if len(self._regen_end_history) >= 2:
                 hist_ts = sorted([d for d in self._regen_end_history if d is not None])
