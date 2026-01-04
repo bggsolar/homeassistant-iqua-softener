@@ -83,6 +83,9 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
     try:
         await coordinator.async_load_baseline()
         await coordinator.async_config_entry_first_refresh()
+    except Exception as err:
+        # Don't fail setup if the first refresh fails; Home Assistant will retry as needed.
+        _LOGGER.debug("Initial coordinator refresh failed: %s", err)
 
     # Prefer a human-friendly config entry title based on model + serial/PWA instead of UUID.
     try:
