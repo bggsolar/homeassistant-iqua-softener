@@ -566,9 +566,16 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     cloud_days_since = kv.get(k)
                     break
             # As a fallback, scan for any key that contains 'days_since_last_recharge'
+            # As a fallback, scan ONLY enriched keys for any path that contains 'days_since_last_recharge'.
+            # (Do not pick up local/calculated keys, which can be fractional and drift.)
             if cloud_days_since is None:
                 for k, v in kv.items():
-                    if isinstance(k, str) and "days_since_last_recharge" in k and v is not None:
+                    if (
+                        isinstance(k, str)
+                        and v is not None
+                        and "days_since_last_recharge" in k
+                        and (k.startswith("enriched") or k.startswith("enriched_data") or k == "days_since_last_recharge")
+                    ):
                         cloud_days_since = v
                         break
             try:
@@ -618,7 +625,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 try:
                     if cloud_days_since_f is not None:
                         # Prefer authoritative cloud/enriched counter when present
-                        kv["calculated.days_since_last_regen_days"] = max(0.0, float(cloud_days_since_f))
+                        kv["calculated.days_since_last_regen_days"] = max(0, int(float(cloud_days_since_f)))
                         # Keep local timestamp in sync for any other calculations that rely on it
                         self._last_regen_end = now_dt - timedelta(days=float(cloud_days_since_f))
                     else:
@@ -644,16 +651,21 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 last30 = [float(it["liters"]) for it in hist[-30:]]
                 kv["calculated.average_daily_use_l_30d"] = (sum(last30) / len(last30)) if last30 else None
 
-            # Restart fallback: if we don't have a reliable baseline/remaining value yet,
-            # estimate remaining treated capacity based on days_since_last_recharge and usage history.
+            # Restart fallback / baseline bootstrap:
+            # If we are not IST-ready yet, try to bootstrap a plausible remaining-capacity value from
+            # the cloud-enriched days_since_last_recharge and the device's treated-water 'today' counter.
+            #
+            # Why: On fresh installs / after restarts, we may not have an internal delta baseline yet.
+            # The enriched counter is authoritative when present (and integer-like), but it is not always included.
             try:
-                if (kv.get("calculated.treated_capacity_remaining_l") is None) and (cloud_days_since_f is not None):
+                if (not self._capacity_ist_ready) and (cloud_days_since_f is not None):
                     total_l_now = kv.get("calculated.treated_capacity_total_l")
                     try:
                         total_l_now_f = float(total_l_now) if total_l_now is not None else None
                     except Exception:
                         total_l_now_f = None
-                    if total_l_now_f is not None and total_l_now_f > 0 and (self._baseline_treated_total_l is None):
+
+                    if total_l_now_f is not None and total_l_now_f > 0:
                         days_f = float(cloud_days_since_f)
                         # Only apply when regeneration is not in progress (0 means in/just after recharge).
                         if days_f >= 1.0:
@@ -663,22 +675,43 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                                 treated_today_f = float(treated_today) if treated_today is not None else 0.0
                             except Exception:
                                 treated_today_f = 0.0
+
+                            # Optional average daily treated usage (persisted local history).
                             avg_day = kv.get("calculated.average_daily_use_l")
                             try:
                                 avg_day_f = float(avg_day) if avg_day is not None else None
                             except Exception:
                                 avg_day_f = None
+
+                            # Estimate used since last regen:
+                            # - Always subtract today's treated usage
+                            # - If we have an average and days>1, also subtract (days-1)*avg
                             est_used = max(0.0, treated_today_f)
                             if days_f > 1.0 and avg_day_f is not None and avg_day_f >= 0:
                                 est_used += max(0.0, (days_f - 1.0)) * avg_day_f
+
                             remaining_est = max(0.0, min(total_l_now_f, total_l_now_f - est_used))
+
+                            # Publish estimate for sensors and bootstrap delta tracking.
                             kv["calculated.treated_capacity_remaining_l"] = remaining_est
                             kv["calculated.treated_capacity_remaining_percent"] = (remaining_est / total_l_now_f) * 100.0
                             kv["calculated.treated_capacity_remaining_is_estimate"] = True
-                            # Make this estimate available internally as a starting point until we
-                            # can compute the IST value from an inferred/persisted baseline.
+
+                            # Bootstrap internal IST tracking so we can start subtracting deltas immediately.
                             self._capacity_remaining_l = remaining_est
                             self._capacity_ist_ready = True
+
+                            # Seed delta baseline from current treated_total counter (if present).
+                            if treated_total_l is not None:
+                                self._water_total_last_l = treated_total_l
+
+                                # Also seed an approximate regen baseline (for absolute fallback display),
+                                # only if we don't have one yet.
+                                if self._baseline_treated_total_l is None:
+                                    baseline_est = max(0.0, float(treated_total_l) - float(est_used))
+                                    self._baseline_treated_total_l = baseline_est
+
+                            await self._async_save_baseline()
             except Exception:
                 pass
 

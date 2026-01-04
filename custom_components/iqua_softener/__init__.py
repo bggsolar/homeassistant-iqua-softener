@@ -99,7 +99,9 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         raise ConfigEntryNotReady from err
 
 
-    # After the first successful refresh we know manufacturing_information.pwa/model.
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+# After platforms are set up, the Device Registry entry exists.
     # Keep the config entry title as "iQua <uuid>" (stable), but rename the *device* in HA
     # to "iQua <model> <pwa>" for a nicer UI prefix in entity names.
     try:
@@ -108,23 +110,24 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         model_raw = kv.get("manufacturing_information.model") or kv.get("manufacturing_information.model_code")
         pwa = _slugify_pwa(pwa_raw) if pwa_raw else None
         model = str(model_raw).strip() if model_raw else None
+
         if pwa:
             desired_device_name = f"iQua {model} {pwa}".strip() if model else f"iQua {pwa}"
             dev_reg = dr.async_get(hass)
             for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
-                # Only auto-rename when the existing device name still contains the UUID
-                if dev.name and str(device_uuid) in dev.name:
+                # Don't override a user-provided device name
+                if dev.name_by_user:
+                    continue
+
+                current = dev.name or ""
+                # Auto-fix cases:
+                # - name contains UUID (fresh install)
+                # - name equals "iQua <pwa>" (from a previous buggy auto-rename)
+                if (str(device_uuid) in current) or (current.strip().lower() == f"iqua {pwa}".lower()):
                     dev_reg.async_update_device(dev.id, name=desired_device_name)
     except Exception as err:
-        _LOGGER.debug("Could not update device name to model/pwa: %s", err)
-    # Store runtime objects in hass.data (but don't rely on hass.data for config values)
-    hass.data[DOMAIN][entry.entry_id] = {
-        "coordinator": coordinator,
-        CONF_DEVICE_UUID: str(device_uuid),
-        "unsub_options_update_listener": entry.add_update_listener(options_update_listener),
-    }
+        _LOGGER.debug("Device rename skipped/failed: %s", err)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
