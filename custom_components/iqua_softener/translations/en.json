@@ -9,9 +9,6 @@
       },
       "treated_capacity_ist_ready": {
         "name": "Softening capacity calculated"
-      },
-      "sodium_within_limit": {
-        "name": "Sodium within limit"
       }
     },
     "number": {

@@ -351,7 +351,21 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             regen_rem = float(regen_raw) if regen_raw is not None else 0.0
         except Exception:
             regen_rem = 0.0
-        regen_active = regen_rem > 0.0
+
+        # Newer API responses may include an explicit regeneration status.
+        # Older versions often omit this key entirely; therefore we only
+        # consider it when present.
+        regen_status = kv.get("regeneration.regeneration_status") or kv.get("regeneration_status")
+        regen_active_by_status: bool | None = None
+        if isinstance(regen_status, str) and regen_status.strip():
+            st = regen_status.strip().lower()
+            if st in ("regenerating", "recharging", "recharge", "backwash", "rinse", "brine", "fast_rinse", "slow_rinse"):
+                regen_active_by_status = True
+            elif st in ("idle", "ready", "standby", "off"):
+                regen_active_by_status = False
+
+        regen_active = regen_active_by_status if regen_active_by_status is not None else (regen_rem > 0.0)
+
 
         # Track regeneration edges. We want the baseline to represent the
         # lifelong treated-water counter **after** a regeneration has completed.
@@ -474,6 +488,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Expose regeneration status (info-only entities must not drive logic)
         kv["calculated.regen_time_remaining_secs"] = regen_rem
         kv["calculated.regeneration_running"] = regen_active
+        kv["calculated.regeneration_status"] = regen_status if isinstance(regen_status, str) and regen_status.strip() else None
 
         # fix17: delta-based remaining capacity tracking
         # We only subtract *changes* in the lifetime treated-water counter after regeneration end,
@@ -809,4 +824,3 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         }
 
         return data
-

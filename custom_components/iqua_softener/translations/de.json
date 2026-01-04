@@ -9,9 +9,6 @@
       },
       "treated_capacity_ist_ready": {
         "name": "Enthärtungskapazität IST berechnet"
-      },
-      "sodium_within_limit": {
-        "name": "Natrium unter Grenzwert"
       }
     },
     "number": {

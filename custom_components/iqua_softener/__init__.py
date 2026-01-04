@@ -84,26 +84,6 @@ async def async_setup_entry(hass: core.HomeAssistant, entry: config_entries.Conf
         await coordinator.async_load_baseline()
         await coordinator.async_config_entry_first_refresh()
     except Exception as err:
-        # Don't fail setup if the first refresh fails; Home Assistant will retry as needed.
-        _LOGGER.debug("Initial coordinator refresh failed: %s", err)
-
-    # Prefer a human-friendly config entry title based on model + serial/PWA instead of UUID.
-    try:
-        from homeassistant.util import slugify  # local import to avoid issues during setup
-        data = coordinator.data or {}
-        kv = data.get('kv', {}) if isinstance(data, dict) else {}
-        model = kv.get('device.model') or kv.get('device.model_name') or kv.get('device.type') or 'Softener'
-        serial = kv.get('device.pwa') or kv.get('device.serial') or kv.get('device.serial_number')
-        if serial:
-            title = f"iQua {model} {serial}"
-        else:
-            title = f"iQua {model}"
-        if entry.title != title:
-            hass.config_entries.async_update_entry(entry, title=title)
-    except Exception:
-        # Title is best-effort only; never fail setup due to naming.
-        pass
-    except Exception as err:
         # Temporary API/network issues -> retry
         _LOGGER.warning("iQua Softener not ready yet: %s", err)
         raise ConfigEntryNotReady from err
