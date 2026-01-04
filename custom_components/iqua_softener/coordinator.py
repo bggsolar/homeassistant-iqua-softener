@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta, datetime
 from typing import Any, Dict, Optional, Tuple
 
@@ -210,6 +211,12 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._baseline_loaded: bool = False
         self._baseline_treated_total_l: Optional[float] = None
         self._regen_active_prev: bool = False
+        # Latch regeneration state for a short period because the cloud status
+        # may disappear immediately after the final phase while the unit is
+        # still effectively regenerating.
+        self._regen_latch_until: float = 0.0
+        self._regen_latch_seconds: float = 15 * 60
+
 
         # Persisted derived-metrics state
         self._last_regen_end: Optional[datetime] = None
@@ -364,7 +371,24 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             elif st in ("idle", "ready", "standby", "off"):
                 regen_active_by_status = False
 
-        regen_active = regen_active_by_status if regen_active_by_status is not None else (regen_rem > 0.0)
+        # Raw regeneration detection:
+        # - Prefer explicit status when present (newer/regen-only responses).
+        # - Fall back to remaining-time counter (older responses).
+        regen_raw_active = (regen_active_by_status is True) or (regen_active_by_status is None and regen_rem > 0.0)
+
+        now_ts = time.time()
+
+        # If we get an explicit idle/ready status, clear any latch immediately.
+        if regen_active_by_status is False:
+            self._regen_latch_until = 0.0
+
+        # If we observe regeneration active, extend the latch window.
+        if regen_raw_active:
+            self._regen_latch_until = max(self._regen_latch_until, now_ts + self._regen_latch_seconds)
+
+        # Latched regeneration state: stay "on" for a short period even if the
+        # cloud stops sending regen keys, to avoid flickering.
+        regen_active = regen_raw_active or (now_ts < self._regen_latch_until)
 
 
         # Track regeneration edges. We want the baseline to represent the
