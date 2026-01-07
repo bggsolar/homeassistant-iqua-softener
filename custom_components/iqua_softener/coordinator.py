@@ -460,6 +460,28 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if total_l_now is not None and total_l_now > 0:
                 self._last_total_capacity_l = float(total_l_now)
 
+            # fix22: determine days_since_last_recharge locally (avoid unbound cloud_days_since_f)
+            cloud_days_since_f = None
+            try:
+                _cloud_days_since = None
+                for _k in (
+                    "enriched_data.days_since_last_recharge",
+                    "enriched.days_since_last_recharge",
+                    "enriched.days_since_last_recharge_days",
+                    "enriched_data.days_since_last_recharge_days",
+                    "days_since_last_recharge",
+                    "days_since_last_recharge_days",
+                    "regenerations.time_since_last_recharge_days",
+                    "regenerations.days_since_last_recharge_days",
+                ):
+                    if kv.get(_k) is not None:
+                        _cloud_days_since = kv.get(_k)
+                        break
+                if _cloud_days_since is not None:
+                    cloud_days_since_f = _to_float(_cloud_days_since)
+            except Exception:
+                cloud_days_since_f = None
+
             reset_candidate = (cloud_days_since_f == 0.0) and (regen_rem == 0.0) and (not regen_active)
             if reset_candidate:
                 if self._last_capacity_reset_date != today_iso:
