@@ -245,6 +245,10 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._capacity_remaining_l: Optional[float] = None
         self._water_total_last_l: Optional[float] = None
 
+        # Persisted reset guard / regen detection (fix18)
+        self._last_capacity_reset_date: Optional[str] = None
+        self._prev_cloud_days_since: Optional[float] = None
+
 
     async def async_load_baseline(self) -> None:
         """Load persisted baseline for treated water counter."""
@@ -304,6 +308,18 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     except Exception:
                         self._water_total_last_l = None
 
+                # fix18: reset guard + previous days-since tracker
+                if data.get("last_capacity_reset_date") is not None:
+                    try:
+                        self._last_capacity_reset_date = str(data.get("last_capacity_reset_date"))
+                    except Exception:
+                        self._last_capacity_reset_date = None
+                if data.get("prev_cloud_days_since") is not None:
+                    try:
+                        self._prev_cloud_days_since = float(data.get("prev_cloud_days_since"))
+                    except Exception:
+                        self._prev_cloud_days_since = None
+
 
         except Exception as err:
             _LOGGER.debug("Failed to load iQua baseline store: %s", err)
@@ -322,6 +338,8 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     "capacity_ist_ready": self._capacity_ist_ready,
                     "capacity_remaining_l": self._capacity_remaining_l,
                     "water_total_last_l": self._water_total_last_l,
+                    "last_capacity_reset_date": self._last_capacity_reset_date,
+                    "prev_cloud_days_since": self._prev_cloud_days_since,
                 }
             )
         except Exception as err:
@@ -601,6 +619,42 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             except Exception:
                 cloud_days_since_f = None
 
+            # fix18: detect regeneration completion even if we missed the active->inactive edge.
+            # Trigger when cloud says "days since last recharge" is 0 and the remaining-time counter is 0.
+            # To avoid repeated resets throughout the day, we persist a per-day guard and also track the previous
+            # cloud value to catch the 1->0 (or >0->0) transition.
+            today_key = dt_util.now().date().isoformat()
+            days_is_zero = (cloud_days_since_f is not None and int(_to_float(cloud_days_since_f)) == 0)
+            regen_timer_zero = (regen_rem is not None and float(regen_rem) <= 0.0)
+            can_reset_now = (not regen_active) and days_is_zero and regen_timer_zero and (treated_total_l is not None)
+            prev_days_nonzero = (self._prev_cloud_days_since is not None and int(_to_float(self._prev_cloud_days_since)) != 0)
+            remaining_is_broken = (self._capacity_remaining_l is None or float(self._capacity_remaining_l) <= 0.0)
+
+            if can_reset_now and (prev_days_nonzero or remaining_is_broken) and (self._last_capacity_reset_date != today_key):
+                total_l_now = self._compute_capacity_total_l(kv)
+                if total_l_now is not None:
+                    self._baseline_treated_total_l = treated_total_l
+                    self._capacity_ist_ready = True
+                    self._water_total_last_l = treated_total_l
+                    self._capacity_remaining_l = float(total_l_now)
+
+                    now = dt_util.now()
+                    self._last_regen_end = now
+                    self._regen_end_history.append(now)
+                    self._regen_end_history = self._regen_end_history[-30:]
+
+                    self._last_capacity_reset_date = today_key
+                    await self._async_save_baseline()
+                    _LOGGER.debug(
+                        "fix18: Regeneration reset applied (days_since_last_recharge=0 & regen_time_remaining=0). baseline=%s L, capacity=%s L",
+                        treated_total_l,
+                        total_l_now,
+                    )
+
+            # Update previous cloud days-since tracker
+            if cloud_days_since_f is not None:
+                self._prev_cloud_days_since = float(cloud_days_since_f)
+
             if self._last_regen_end is None:
                 cloud_days = kv.get("regenerations.time_since_last_recharge_days")
                 try:
@@ -619,6 +673,28 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 prev_cloud = getattr(self, "_cloud_days_since_last_recharge_prev", None)
                 # Store current for next cycle
                 self._cloud_days_since_last_recharge_prev = cloud_days_since_f
+                # If we just started (no previous value) and the cloud reports 0 days since recharge,
+                # assume a recharge has recently completed and reset local baselines. This handles
+                # restarts that happen after a recharge, where we would otherwise miss the 'drop' edge.
+                if prev_cloud is None and cloud_days_since_f <= 0.5:
+                    _LOGGER.debug(
+                        "Seeding recharge baseline from days_since_last_recharge=%.2f (no previous value)",
+                        float(cloud_days_since_f),
+                    )
+                    if total_l is not None and treated_total_l is not None:
+                        try:
+                            self._baseline_treated_total_l = float(treated_total_l)
+                            self._capacity_remaining_l = float(total_l)
+                            self._water_total_last_l = float(treated_total_l)
+                            self._capacity_ist_ready = True
+                        except Exception:
+                            pass
+                    # Also update regen timestamps/history for derived metrics
+                    self._last_regen_end = now_dt
+                    self._regen_end_history.append(now_dt)
+                    self._regen_end_history = self._regen_end_history[-30:]
+                    await self._async_save_baseline()
+
                 # A significant drop indicates a new recharge just completed.
                 if prev_cloud is not None and cloud_days_since_f + 0.5 < float(prev_cloud):
                     _LOGGER.debug(
