@@ -1,0 +1,196 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "regeneration_running": {
+        "name": "Regeneration running"
+      },
+      "sodium_limit_exceeded": {
+        "name": "Sodium limit exceeded"
+      },
+      "treated_capacity_ist_ready": {
+        "name": "Softening capacity calculated"
+      }
+    },
+    "number": {
+      "raw_hardness_dh": {
+        "name": "Raw water hardness (°dH)"
+      },
+      "raw_sodium_mg_l": {
+        "name": "Raw water sodium"
+      },
+      "softened_hardness_dh": {
+        "name": "Soft water hardness (°dH)"
+      }
+    },
+    "sensor": {
+      "average_capacity_remaining_at_regen_percent": {
+        "name": "Avg capacity remaining at regen"
+      },
+      "average_daily_use_l": {
+        "name": "Average daily use"
+      },
+      "average_days_between_recharge_days": {
+        "name": "Avg days between recharges"
+      },
+      "average_salt_dose_per_recharge_kg": {
+        "name": "Avg salt dose per recharge"
+      },
+      "calculated_average_daily_use_l": {
+        "name": "Avg daily use (calculated)"
+      },
+      "calculated_average_days_between_regen_days": {
+        "name": "Avg days between regenerations (calculated)"
+      },
+      "calculated_days_since_last_regen_days": {
+        "name": "Days since last regeneration (calculated)"
+      },
+      "calculated_treated_capacity_remaining_l": {
+        "name": "Remaining treated water (calculated)"
+      },
+      "calculated_treated_capacity_remaining_percent": {
+        "name": "Remaining treated capacity (calculated, %)"
+      },
+      "calculated_treated_capacity_total_l": {
+        "name": "Treated water capacity (calculated)"
+      },
+      "capacity_remaining_percent": {
+        "name": "Capacity remaining"
+      },
+      "controller_time": {
+        "name": "Controller time"
+      },
+      "current_flow_lpm": {
+        "name": "Current flow"
+      },
+      "daily_average_rock_removed_kg": {
+        "name": "Daily avg rock removed"
+      },
+      "daily_water_usage_avg_pattern_l": {
+        "name": "Water usage pattern (avg)"
+      },
+      "daily_water_usage_reserved_pattern_l": {
+        "name": "Water usage pattern (reserved)"
+      },
+      "days_since_last_time_loss": {
+        "name": "Days since last time loss"
+      },
+      "delta_water_daily_l": {
+        "name": "Raw water today (L)"
+      },
+      "effective_hardness_smoothed_dh": {
+        "name": "Effective hardness (smoothed)"
+      },
+      "effective_sodium_mg_l": {
+        "name": "Effective sodium concentration"
+      },
+      "functional_computer_board": {
+        "name": "Computer board"
+      },
+      "functional_cord_power_supply": {
+        "name": "Cord / power supply"
+      },
+      "functional_water_meter_sensor": {
+        "name": "Water meter sensor"
+      },
+      "hardness_grains_per_gal": {
+        "name": "Hardness"
+      },
+      "house_water_daily_l": {
+        "name": "House water today (liters)"
+      },
+      "house_water_total_l": {
+        "name": "House water total (liters)"
+      },
+      "last_message_received": {
+        "name": "Last message received"
+      },
+      "longest_recorded_outage": {
+        "name": "Longest recorded outage"
+      },
+      "manual_regens": {
+        "name": "Manual regenerations"
+      },
+      "misc_lockout_status": {
+        "name": "Lockout status"
+      },
+      "misc_regeneration_enabled": {
+        "name": "Regeneration enabled"
+      },
+      "misc_second_output": {
+        "name": "Second output"
+      },
+      "operating_capacity_grains": {
+        "name": "Operating capacity"
+      },
+      "out_of_salt_days": {
+        "name": "Out of salt (days)"
+      },
+      "peak_flow_lpm": {
+        "name": "Peak flow"
+      },
+      "raw_fraction_daily_percent": {
+        "name": "Mixing ratio raw share (today)"
+      },
+      "regen_time_remaining": {
+        "name": "Regen time remaining"
+      },
+      "salt_monitor_percent": {
+        "name": "Salt level"
+      },
+      "salt_total_kg": {
+        "name": "Salt total"
+      },
+      "second_backwash_cycles": {
+        "name": "Second backwash cycles"
+      },
+      "since_regen_rock_removed_kg": {
+        "name": "Rock removed since regen"
+      },
+      "softened_fraction_daily_percent": {
+        "name": "Softened water share today"
+      },
+      "softened_water_daily_l": {
+        "name": "Softened water today (liters)"
+      },
+      "time_in_operation_days": {
+        "name": "Time in operation"
+      },
+      "time_since_last_recharge_days": {
+        "name": "Time since last recharge"
+      },
+      "total_power_outages": {
+        "name": "Total power outages"
+      },
+      "total_regens": {
+        "name": "Total regenerations"
+      },
+      "total_rock_removed_kg": {
+        "name": "Total rock removed"
+      },
+      "total_salt_efficiency_ppm_per_kg": {
+        "name": "Total salt efficiency"
+      },
+      "total_times_power_lost": {
+        "name": "Total times power lost"
+      },
+      "treated_hardness_daily_dh": {
+        "name": "Effective hardness today (°dH)"
+      },
+      "treated_water_available_l": {
+        "name": "Treated water available"
+      },
+      "treated_water_total_l": {
+        "name": "Treated water (total)"
+      },
+      "untreated_water_total_l": {
+        "name": "Untreated water (total)"
+      },
+      "water_today_l": {
+        "name": "Water today"
+      },
+      "water_totalizer_l": {
+        "name": "Water totalizer"
+      }
+    }
+  }
+}
