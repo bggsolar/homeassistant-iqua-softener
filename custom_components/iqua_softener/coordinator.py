@@ -248,6 +248,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Persisted reset guard / regen detection (fix18)
         self._last_capacity_reset_date: Optional[str] = None
         self._prev_cloud_days_since: Optional[float] = None
+        self._last_total_capacity_l: Optional[float] = None
 
 
     async def async_load_baseline(self) -> None:
@@ -319,6 +320,11 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         self._prev_cloud_days_since = float(data.get("prev_cloud_days_since"))
                     except Exception:
                         self._prev_cloud_days_since = None
+                if data.get("last_total_capacity_l") is not None:
+                    try:
+                        self._last_total_capacity_l = float(data.get("last_total_capacity_l"))
+                    except Exception:
+                        self._last_total_capacity_l = None
 
 
         except Exception as err:
@@ -340,6 +346,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     "water_total_last_l": self._water_total_last_l,
                     "last_capacity_reset_date": self._last_capacity_reset_date,
                     "prev_cloud_days_since": self._prev_cloud_days_since,
+                    "last_total_capacity_l": self._last_total_capacity_l,
                 }
             )
         except Exception as err:
@@ -541,6 +548,8 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         total_l = self._compute_capacity_total_l(kv)
         if total_l is not None:
             kv["calculated.treated_capacity_total_l"] = total_l
+            # Remember last known total capacity for resets when cloud omits grains/hardness on some polls
+            self._last_total_capacity_l = float(total_l)
 
         # Expose regeneration status (info-only entities must not drive logic)
         kv["calculated.regen_time_remaining_secs"] = regen_rem
@@ -631,7 +640,17 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             remaining_is_broken = (self._capacity_remaining_l is None or float(self._capacity_remaining_l) <= 0.0)
 
             if can_reset_now and (prev_days_nonzero or remaining_is_broken) and (self._last_capacity_reset_date != today_key):
-                total_l_now = self._compute_capacity_total_l(kv)
+                total_l_now = kv.get("calculated.treated_capacity_total_l") or total_l
+                if total_l_now is None:
+                    total_l_now = self._compute_capacity_total_l(kv)
+                if total_l_now is None:
+                    total_l_now = self._last_total_capacity_l
+                if total_l_now is None:
+                    _LOGGER.debug(
+                        "fix18: Reset candidate but total capacity unknown (days_since_last_recharge=0 & regen_time_remaining=0). Remaining=%s, treated_total=%s",
+                        self._capacity_remaining_l,
+                        treated_total_l,
+                    )
                 if total_l_now is not None:
                     self._baseline_treated_total_l = treated_total_l
                     self._capacity_ist_ready = True
