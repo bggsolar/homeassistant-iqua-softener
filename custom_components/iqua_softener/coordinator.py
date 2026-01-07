@@ -454,17 +454,19 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # This must only happen once per day, and only when we can resolve a total capacity.
         try:
             today_iso = dt_util.now().date().isoformat()
+            # fix21: compute total capacity here (avoid unbound total_l before later calculations)
+            total_l_now = self._compute_capacity_total_l(kv)
             # Keep last known total capacity for fallback
-            if total_l is not None and total_l > 0:
-                self._last_total_capacity_l = float(total_l)
+            if total_l_now is not None and total_l_now > 0:
+                self._last_total_capacity_l = float(total_l_now)
 
             reset_candidate = (cloud_days_since_f == 0.0) and (regen_rem == 0.0) and (not regen_active)
             if reset_candidate:
                 if self._last_capacity_reset_date != today_iso:
                     # Resolve total capacity (prefer current computed, else last known)
                     total_for_reset = None
-                    if total_l is not None and total_l > 0:
-                        total_for_reset = float(total_l)
+                    if total_l_now is not None and total_l_now > 0:
+                        total_for_reset = float(total_l_now)
                     elif self._last_total_capacity_l is not None and self._last_total_capacity_l > 0:
                         total_for_reset = float(self._last_total_capacity_l)
 
@@ -484,9 +486,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             )
                             self._capacity_remaining_l = total_for_reset
                             self._capacity_ist_ready = True
-                            if treated_total_l is not None:
-                                self._baseline_treated_total_l = float(treated_total_l)
-                                self._water_total_last_l = float(treated_total_l)
+                            if treated_total_l_now is not None:
+                                self._baseline_treated_total_l_now = float(treated_total_l_now)
+                                self._water_total_l_nowast_l = float(treated_total_l_now)
                             self._last_capacity_reset_date = today_iso
                             await self._async_save_baseline()
                         else:
