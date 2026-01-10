@@ -1090,21 +1090,46 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
             return
         # Treated (softened) total can be stale (controller updates delayed).
         # If house usage increased but softened total did not move at all in this interval,
-        # we cannot compute a valid mixing ratio. Hard hold-last (no EWMA update, no drift).
+        # we cannot compute a valid interval mixing ratio.
+        #
+        # Behavior:
+        # - Re-baseline EWMA to *today's* effective hardness (daily mixing) to avoid a poisoned EWMA drifting to raw hardness
+        # - Then hard hold-last (no EWMA update from this interval)
         if delta_house > 0.0 and delta_soft <= 0.0:
+            # Compute today's effective hardness using daily counters (robust across midnight)
+            house_today = float(self._house_daily.native_value or 0.0)
+            delta_today = float(self._delta_daily.native_value or 0.0)
+
+            if house_today > 0.0:
+                roh_frac_today = max(min(delta_today / house_today, 1.0), 0.0)
+            else:
+                roh_frac_today = 0.0
+
+            h_today = (float(raw_h) * roh_frac_today) + (float(soft_h) * (1.0 - roh_frac_today))
+
+            now_ts = datetime.utcnow().timestamp()
+            # Re-baseline EWMA to today's effective hardness (prevents drift towards raw hardness)
+            self._ewma_state["value"] = float(h_today)
+            self._ewma_state["ts"] = float(now_ts)
+
             self._calc_reason = "treated_counter_stale"
-            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_native_value = _round(float(h_today), 2)
             self._attr_extra_state_attributes = {
                 **self._base_attrs(),
-                "raw_hardness_dh": raw_h,
-                "softened_hardness_dh": soft_h,
-                "delta_house_l": delta_house,
-                "delta_soft_l": delta_soft,
+                "raw_hardness_dh": float(raw_h),
+                "softened_hardness_dh": float(soft_h),
+                "effective_hardness_today_dh": _round(float(h_today), 2),
+                "raw_fraction_today": _round(float(roh_frac_today), 4),
+                "house_today_l": _round(float(house_today), 1),
+                "delta_today_l": _round(float(delta_today), 1),
+                "delta_house_l": float(delta_house),
+                "delta_soft_l": float(delta_soft),
                 "house_total_l": float(house_total),
                 "soft_total_l": float(soft_total),
+                "tau_seconds": float(self._tau_seconds),
+                "ewma_ts": float(self._ewma_state.get("ts") or now_ts),
             }
             return
-
 
         delta_raw = max(delta_house - delta_soft, 0.0)
         roh_frac = max(min(delta_raw / delta_house, 1.0), 0.0)
