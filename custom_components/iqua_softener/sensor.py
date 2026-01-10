@@ -983,70 +983,36 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
             self._attr_extra_state_attributes = self._base_attrs()
             return
 
-        # Ensure daily sensors are updated from the same coordinator tick        # Rolling (interval) mixing ratio based on monotonically increasing totals.
-                house_total = self._read_house_total_l()
-                soft_total = self._read_soft_total_l()
-                if house_total is None or soft_total is None:
-                    self._calc_status = "disabled"
-                    self._calc_reason = "missing_total_volumes"
-                    # Hold last value if we have one
-                    prev = self._ewma_state.get("value")
-                    self._attr_native_value = _round(prev, 2) if prev is not None else None
-                    self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h}
-                    return
+        # Ensure daily sensors are updated from the same coordinator tick
+        self._house_daily.update_from_data(data)
+        self._delta_daily.update_from_data(data)
 
-                delta_total = max(float(house_total) - float(soft_total), 0.0)
+        house_today = _parse_optional_float(self._house_daily.native_value)
+        delta_today = _parse_optional_float(self._delta_daily.native_value)
+        if house_today is None or house_today <= 0 or delta_today is None:
+            self._calc_status = "disabled"
+            self._calc_reason = "missing_daily_volumes"
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h}
+            return
 
-                last_house = _parse_optional_float(self._ewma_state.get("last_house_total_l"))
-                last_delta = _parse_optional_float(self._ewma_state.get("last_delta_total_l"))
+        roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
+        h_eff = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
 
-                # Update last totals for next cycle (we still need deltas below, so keep copies)
-                self._ewma_state["last_house_total_l"] = float(house_total)
-                self._ewma_state["last_delta_total_l"] = float(delta_total)
+        now_ts = datetime.utcnow().timestamp()
+        h_smooth = _ewma_update(self._ewma_state, float(h_eff), now_ts, self._tau_seconds)
 
-                if last_house is None or last_delta is None:
-                    # First sample: initialize EWMA directly from current ratio if possible
-                    # (No interval delta yet.)
-                    self._calc_status = "enabled"
-                    self._calc_reason = "init"
-                    # Use current totals ratio as best-effort (may be skewed after long runtime)
-                    roh_frac = max(min(delta_total / float(house_total), 1.0), 0.0) if float(house_total) > 0 else 0.0
-                    h_eff = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
-                    now_ts = datetime.utcnow().timestamp()
-                    h_smooth = _ewma_update(self._ewma_state, float(h_eff), now_ts, self._tau_seconds)
-                    self._attr_native_value = _round(h_smooth, 2)
-                    self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h, "roh_frac_interval": roh_frac}
-                else:
-                    dhouse = float(house_total) - float(last_house)
-                    ddelta = float(delta_total) - float(last_delta)
+        self._attr_native_value = _round(h_smooth, 2)
+        self._attr_extra_state_attributes = {
+            **self._base_attrs(),
+            "raw_hardness_dh": raw_h,
+            "softened_hardness_dh": soft_h,
+            "raw_fraction": _round(roh_frac, 4),
+            "sample_effective_hardness_dh": _round(h_eff, 2),
+            "ewma_tau_seconds": self._tau_seconds,
+        }
 
-                    # Ignore non-increasing or negative deltas (reset/restart); hold last value.
-                    if dhouse <= 0.01 or ddelta < -0.01:
-                        self._calc_status = "enabled"
-                        self._calc_reason = "hold_last"
-                        prev = self._ewma_state.get("value")
-                        self._attr_native_value = _round(prev, 2) if prev is not None else None
-                        self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h, "delta_house_l": dhouse, "delta_raw_l": ddelta}
-                    else:
-                        roh_frac = max(min(ddelta / dhouse, 1.0), 0.0)
-                        h_eff = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
-                        now_ts = datetime.utcnow().timestamp()
-                        h_smooth = _ewma_update(self._ewma_state, float(h_eff), now_ts, self._tau_seconds)
-                        self._attr_native_value = _round(h_smooth, 2)
-                        self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h, "roh_frac_interval": roh_frac, "delta_house_l": dhouse, "delta_raw_l": ddelta}
 
-                # Persist EWMA state occasionally (debounced by time)
-                try:
-                    now_ts = datetime.utcnow().timestamp()
-                    last_saved = _parse_optional_float(self._ewma_state.get("last_saved_ts"))
-                    if last_saved is None or (now_ts - last_saved) > 300:
-                        self._ewma_state["last_saved_ts"] = now_ts
-                        if hasattr(self.coordinator, "async_save_baseline"):
-                            self.hass.async_create_task(self.coordinator.async_save_baseline())
-                except Exception:
-                    pass
-
-                return
 class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
     """Compute effective sodium concentration (mg/L) based on effective hardness reduction.
 
@@ -1221,11 +1187,9 @@ async def async_setup_entry(
     softened_hardness_dh = merged.get(CONF_SOFTENED_HARDNESS_DH)
     raw_sodium_mg_l = merged.get(CONF_RAW_SODIUM_MG_L, DEFAULT_RAW_SODIUM_MG_L)
 
-    # Shared EWMA state (persisted via coordinator baseline store).
-    ewma_state = getattr(coordinator, "_ewma_effective_hardness", None)
-    if not isinstance(ewma_state, dict):
-        ewma_state = {"value": None, "ts": None, "last_house_total_l": None, "last_delta_total_l": None, "last_saved_ts": None}
-        setattr(coordinator, "_ewma_effective_hardness", ewma_state)
+    # Shared EWMA runtime state (in-memory). Smoothed sensor restores its last value on startup.
+    entry_runtime = hass.data.setdefault(DOMAIN, {}).setdefault(config_entry.entry_id, {})
+    ewma_state = entry_runtime.setdefault("ewma", {}).setdefault("effective_hardness", {"value": None, "ts": None})
 
     # Provide a sensible default for raw hardness (user requested: 22.2 °dH).
     # Rest hardness remains optional; if missing/invalid, treated hardness calculation is disabled.
