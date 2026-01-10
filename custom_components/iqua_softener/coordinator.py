@@ -360,9 +360,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.debug("Failed to save iQua baseline store: %s", err)
 
     async def async_save_baseline(self) -> None:
-        # Public wrapper to persist baseline state (fix24)
+        """Public wrapper to persist baseline state."""
         await self._async_save_baseline()
-        return
+
     def _compute_capacity_total_l(self, kv: Dict[str, Any]) -> Optional[float]:
         """Compute total treated capacity in liters from grains + hardness."""
         op = kv.get("configuration.operating_capacity_grains")
