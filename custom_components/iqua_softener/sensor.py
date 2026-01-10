@@ -1035,8 +1035,42 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
             }
             return
 
+        # Detect counter resets (e.g., daily reset or controller reset) and re-baseline.
+        if float(house_total) < float(prev_house) or float(soft_total) < float(prev_soft):
+            self._ewma_state["last_house_total"] = float(house_total)
+            self._ewma_state["last_soft_total"] = float(soft_total)
+            self._calc_reason = "counter_reset_rebaseline"
+            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "house_total_l": float(house_total),
+                "soft_total_l": float(soft_total),
+            }
+            return
+
         delta_house = max(float(house_total) - float(prev_house), 0.0)
         delta_soft = max(float(soft_total) - float(prev_soft), 0.0)
+
+        # If we see water usage but the treated-water counter did not advance,
+        # we cannot derive a reliable mixing ratio. Hold the last value to avoid spikes.
+        if delta_house > 0.0 and delta_soft <= 0.0:
+            self._calc_reason = "treated_counter_stale"
+            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "delta_house_l": float(delta_house),
+                "delta_soft_l": float(delta_soft),
+                "house_total_l": float(house_total),
+                "soft_total_l": float(soft_total),
+            }
+            # Still persist totals to allow recovery on next tick
+            self._ewma_state["last_house_total"] = float(house_total)
+            self._ewma_state["last_soft_total"] = float(soft_total)
+            return
 
         # Persist current totals for next interval
         self._ewma_state["last_house_total"] = float(house_total)
