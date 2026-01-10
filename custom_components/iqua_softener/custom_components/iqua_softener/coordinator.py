@@ -248,6 +248,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # fix23: regen-reset guard + last known total capacity
         self._last_capacity_reset_date: Optional[str] = None
         self._last_total_capacity_l: Optional[float] = None
+        self._cloud_days_since_last_recharge_prev: Optional[float] = None
+        self._ewma_effective_hardness: dict[str, Any] = {"value": None, "ts": None, "last_house_total_l": None, "last_delta_total_l": None}
+
 
 
     async def async_load_baseline(self) -> None:
@@ -315,6 +318,17 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         self._last_total_capacity_l = float(data["last_total_capacity_l"])
                     except Exception:
                         self._last_total_capacity_l = None
+                # fix24: persist last seen cloud days_since_last_recharge (for drop detection across restarts)
+                if data.get("cloud_days_since_last_recharge_prev") is not None:
+                    try:
+                        self._cloud_days_since_last_recharge_prev = float(data["cloud_days_since_last_recharge_prev"])
+                    except Exception:
+                        self._cloud_days_since_last_recharge_prev = None
+
+                # fix24: persist EWMA state for effective hardness (smoothed)
+                if isinstance(data.get("ewma_effective_hardness"), dict):
+                    self._ewma_effective_hardness = dict(data.get("ewma_effective_hardness") or {})
+
 
 
 
@@ -337,12 +351,19 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     "water_total_last_l": self._water_total_last_l,
                     "last_capacity_reset_date": self._last_capacity_reset_date,
                     "last_total_capacity_l": self._last_total_capacity_l,
+
+                    "cloud_days_since_last_recharge_prev": getattr(self, "_cloud_days_since_last_recharge_prev", None),
+                    "ewma_effective_hardness": getattr(self, "_ewma_effective_hardness", None),
                 }
             )
         except Exception as err:
             _LOGGER.debug("Failed to save iQua baseline store: %s", err)
 
-    def _compute_capacity_total_l(self, kv: Dict[str, Any]) -> Optional[float]:
+        async def async_save_baseline(self) -> None:
+        """Public wrapper to persist baseline state."""
+        await self._async_save_baseline()
+
+def _compute_capacity_total_l(self, kv: Dict[str, Any]) -> Optional[float]:
         """Compute total treated capacity in liters from grains + hardness."""
         op = kv.get("configuration.operating_capacity_grains")
         if op is None:
@@ -729,7 +750,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # If the enriched cloud counter is present, we can also detect a recharge event by a drop in this value.
             if cloud_days_since_f is not None:
-                prev_cloud = getattr(self, "_cloud_days_since_last_recharge_prev", None)
+                prev_cloud = self._cloud_days_since_last_recharge_prev
                 # Store current for next cycle
                 self._cloud_days_since_last_recharge_prev = cloud_days_since_f
                 # A significant drop indicates a new recharge just completed.
@@ -750,7 +771,19 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             self._capacity_ist_ready = True
                         except Exception:
                             pass
-                    await self._async_save_baseline()
+                    
+                    # fix24: also reset absolute treated-water baseline so remaining capacity starts fresh after recharge
+                    if treated_total_l is not None:
+                        try:
+                            self._baseline_treated_total_l = float(treated_total_l)
+                        except Exception:
+                            pass
+                    # guard: mark the day we applied a reset (prevents repeated resets if cloud counter chatters)
+                    try:
+                        self._last_capacity_reset_date = now_dt.date().isoformat()
+                    except Exception:
+                        self._last_capacity_reset_date = None
+await self._async_save_baseline()
 
             if self._last_regen_end is not None or cloud_days_since_f is not None:
                 try:
