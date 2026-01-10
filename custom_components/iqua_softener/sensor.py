@@ -940,8 +940,8 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
 class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
     """EWMA-smoothed effective outlet hardness (°dH).
 
-    Uses today's mixing ratio (house vs. softened daily volumes) as input and applies
-    an exponential moving average to reduce jumps between polls.
+    Uses an *interval* mixing ratio based on delta volumes between coordinator polls
+    (avoids daily midnight resets) and applies an exponential moving average.
     """
 
     def __init__(
@@ -971,47 +971,111 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
             except Exception:
                 pass
 
+
     def update_from_data(self, data: Dict[str, Any]) -> None:
+        """Update the EWMA-smoothed effective hardness.
+
+        Uses *interval* mixing ratio based on delta volumes between coordinator polls:
+        - house_total_l (from HA sensor) and
+        - softened_total_l (from iQua controller)
+
+        This avoids daily midnight resets and enables a true rolling behavior.
+        If inputs are missing or no new water usage occurred, the last valid EWMA value
+        is kept (hold-last) instead of resetting to unknown.
+        """
         self._calc_status = "enabled"
         self._calc_reason = "ok"
 
+        # Read hardness inputs (raw + softened setpoints)
         raw_h, soft_h, err = self._read_hardness_inputs()
         if err:
             self._calc_status = "disabled"
             self._calc_reason = err
-            self._attr_native_value = None
-            self._attr_extra_state_attributes = self._base_attrs()
+            # hold-last if available
+            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+            }
             return
 
-        # Ensure daily sensors are updated from the same coordinator tick
-        self._house_daily.update_from_data(data)
-        self._delta_daily.update_from_data(data)
+        # Interval totals
+        house_total = self._read_house_total_l()
+        soft_total = self._read_soft_total_l()
 
-        house_today = _parse_optional_float(self._house_daily.native_value)
-        delta_today = _parse_optional_float(self._delta_daily.native_value)
-        if house_today is None or house_today <= 0 or delta_today is None:
+        if house_total is None or soft_total is None:
             self._calc_status = "disabled"
-            self._calc_reason = "missing_daily_volumes"
-            self._attr_native_value = None
-            self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h}
+            self._calc_reason = "missing_totals"
+            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "house_total_l": house_total,
+                "soft_total_l": soft_total,
+            }
             return
 
-        roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
-        h_eff = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
+        prev_house = self._ewma_state.get("last_house_total")
+        prev_soft = self._ewma_state.get("last_soft_total")
+
+        # Initialize interval tracking on first run (or after restart)
+        if prev_house is None or prev_soft is None:
+            self._ewma_state["last_house_total"] = float(house_total)
+            self._ewma_state["last_soft_total"] = float(soft_total)
+            self._calc_reason = "init_interval"
+            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "house_total_l": float(house_total),
+                "soft_total_l": float(soft_total),
+            }
+            return
+
+        delta_house = max(float(house_total) - float(prev_house), 0.0)
+        delta_soft = max(float(soft_total) - float(prev_soft), 0.0)
+
+        # Persist current totals for next interval
+        self._ewma_state["last_house_total"] = float(house_total)
+        self._ewma_state["last_soft_total"] = float(soft_total)
+
+        # No new usage since last poll → keep last EWMA value
+        if delta_house <= 0.0:
+            self._calc_reason = "no_usage"
+            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "delta_house_l": delta_house,
+                "delta_soft_l": delta_soft,
+            }
+            return
+
+        delta_raw = max(delta_house - delta_soft, 0.0)
+        roh_frac = max(min(delta_raw / delta_house, 1.0), 0.0)
+
+        h_eff = (float(raw_h) * roh_frac) + (float(soft_h) * (1.0 - roh_frac))
 
         now_ts = datetime.utcnow().timestamp()
         h_smooth = _ewma_update(self._ewma_state, float(h_eff), now_ts, self._tau_seconds)
 
-        self._attr_native_value = _round(h_smooth, 2)
+        self._attr_native_value = float(h_smooth)
         self._attr_extra_state_attributes = {
             **self._base_attrs(),
-            "raw_hardness_dh": raw_h,
-            "softened_hardness_dh": soft_h,
-            "raw_fraction": _round(roh_frac, 4),
-            "sample_effective_hardness_dh": _round(h_eff, 2),
-            "ewma_tau_seconds": self._tau_seconds,
+            "raw_hardness_dh": float(raw_h),
+            "softened_hardness_dh": float(soft_h),
+            "effective_hardness_dh": float(h_eff),
+            "raw_fraction_interval": float(roh_frac),
+            "delta_house_l": float(delta_house),
+            "delta_soft_l": float(delta_soft),
+            "delta_raw_l": float(delta_raw),
+            "tau_seconds": float(self._tau_seconds),
+            "ewma_ts": float(self._ewma_state.get("ts") or now_ts),
         }
-
 
 class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
     """Compute effective sodium concentration (mg/L) based on effective hardness reduction.
