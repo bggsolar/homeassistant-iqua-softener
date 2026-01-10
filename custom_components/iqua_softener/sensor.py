@@ -1088,6 +1088,23 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 "delta_soft_l": delta_soft,
             }
             return
+        # Treated (softened) total can be stale (controller updates delayed).
+        # If house usage increased but softened total did not move at all in this interval,
+        # we cannot compute a valid mixing ratio. Hard hold-last (no EWMA update, no drift).
+        if delta_house > 0.0 and delta_soft <= 0.0:
+            self._calc_reason = "treated_counter_stale"
+            self._attr_native_value = self._ewma_state.get("value")
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "delta_house_l": delta_house,
+                "delta_soft_l": delta_soft,
+                "house_total_l": float(house_total),
+                "soft_total_l": float(soft_total),
+            }
+            return
+
 
         delta_raw = max(delta_house - delta_soft, 0.0)
         roh_frac = max(min(delta_raw / delta_house, 1.0), 0.0)
