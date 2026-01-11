@@ -1076,16 +1076,37 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
         self._ewma_state["last_house_total"] = float(house_total)
         self._ewma_state["last_soft_total"] = float(soft_total)
 
-        # No new usage since last poll → keep last EWMA value
+        # ---------------------------------------------------------------------
+        # no_usage (hard HOLD)
+        # ---------------------------------------------------------------------
+        # If there is no new house usage since the last coordinator tick, we have
+        # *no new information* about mixing. In that case, the physically correct
+        # behavior is to HOLD the last known "effective hardness (smoothed)" value.
+        #
+        # Important: we must NOT time-advance the EWMA here, otherwise the EWMA
+        # may drift up/down without any water flow (pure time artifact).
         if delta_house <= 0.0:
             self._calc_reason = "no_usage"
-            self._attr_native_value = self._ewma_state.get("value")
+
+            prev = self._ewma_state.get("value")
+            if prev is None:
+                # First run / no restored value yet: use today's effective hardness
+                # as a neutral initialization baseline (does not advance EWMA time).
+                house_today = float(self._house_daily.native_value or 0.0)
+                delta_today = float(self._delta_daily.native_value or 0.0)
+                roh_frac_today = max(min((delta_today / house_today), 1.0), 0.0) if house_today > 0.0 else 0.0
+                prev = (float(raw_h) * roh_frac_today) + (float(soft_h) * (1.0 - roh_frac_today))
+                self._ewma_state["value"] = float(prev)
+                # Do not set/advance ts here.
+
+            self._attr_native_value = _round(float(prev), 2) if prev is not None else None
             self._attr_extra_state_attributes = {
                 **self._base_attrs(),
-                "raw_hardness_dh": raw_h,
-                "softened_hardness_dh": soft_h,
-                "delta_house_l": delta_house,
-                "delta_soft_l": delta_soft,
+                "raw_hardness_dh": float(raw_h),
+                "softened_hardness_dh": float(soft_h),
+                "delta_house_l": float(delta_house),
+                "delta_soft_l": float(delta_soft),
+                "held_value_dh": _round(float(prev), 2) if prev is not None else None,
             }
             return
         # Treated (softened) total can be stale (controller updates delayed).
@@ -1135,6 +1156,30 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
         roh_frac = max(min(delta_raw / delta_house, 1.0), 0.0)
 
         h_eff = (float(raw_h) * roh_frac) + (float(soft_h) * (1.0 - roh_frac))
+
+        # ---------------------------------------------------------------------
+        # Poison / plausibility guard
+        # ---------------------------------------------------------------------
+        # Even in "ok" mode, protect against impossible mixing results caused by
+        # counter glitches or unit mismatches. Effective hardness must be within
+        # [softened_hardness, raw_hardness] (with a tiny epsilon).
+        lo = min(float(raw_h), float(soft_h)) - 0.01
+        hi = max(float(raw_h), float(soft_h)) + 0.01
+        if float(h_eff) < lo or float(h_eff) > hi:
+            self._calc_reason = "invalid_mixing"
+            prev = self._ewma_state.get("value")
+            self._attr_native_value = _round(float(prev), 2) if prev is not None else None
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": float(raw_h),
+                "softened_hardness_dh": float(soft_h),
+                "delta_house_l": float(delta_house),
+                "delta_soft_l": float(delta_soft),
+                "raw_fraction": float(roh_frac),
+                "effective_hardness_calc_dh": float(h_eff),
+                "held_value_dh": _round(float(prev), 2) if prev is not None else None,
+            }
+            return
 
         now_ts = datetime.utcnow().timestamp()
         h_smooth = _ewma_update(self._ewma_state, float(h_eff), now_ts, self._tau_seconds)
