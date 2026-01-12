@@ -248,6 +248,8 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # fix23: regen-reset guard + last known total capacity
         self._last_capacity_reset_date: Optional[str] = None
         self._last_total_capacity_l: Optional[float] = None
+        # fix24: track recharge counter to detect regeneration completion even if status flags are stale
+        self._last_recharge_cycles: Optional[int] = None
 
 
     async def async_load_baseline(self) -> None:
@@ -383,6 +385,26 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except Exception:
             treated_total_l = None
 
+        # fix24: detect regeneration completion via recharge cycle counter (second_backwash_cycles)
+        cur_cycles = kv.get("regenerations.second_backwash_cycles")
+        cur_cycles_i: int | None = None
+        try:
+            if cur_cycles is not None and str(cur_cycles).strip() != "":
+                cur_cycles_i = int(float(cur_cycles))
+        except Exception:
+            cur_cycles_i = None
+
+        # True if the cycle counter increased since last poll (best-effort regen marker)
+        recharge_bumped = (
+            cur_cycles_i is not None
+            and self._last_recharge_cycles is not None
+            and cur_cycles_i > self._last_recharge_cycles
+        )
+
+        # Remember last seen cycle counter
+        if cur_cycles_i is not None:
+            self._last_recharge_cycles = cur_cycles_i
+
         regen_raw = kv.get("program.regen_time_remaining")
         try:
             regen_rem = float(regen_raw) if regen_raw is not None else 0.0
@@ -432,6 +454,13 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self._baseline_treated_total_l = treated_total_l
             # fix17: start delta-based tracking from regeneration end
             self._capacity_ist_ready = True
+            # fix24: on regeneration completion, reset remaining treated capacity to full
+            if total_l_now is not None:
+                self._capacity_total_l = float(total_l_now)
+                self._capacity_remaining_l = float(total_l_now)
+            else:
+                # if total capacity is unknown, at least clear IST state so it can recover later
+                self._capacity_ist_ready = False
             self._water_total_last_l = treated_total_l
             total_l_now = self._compute_capacity_total_l(kv)
             if total_l_now is not None:
@@ -494,6 +523,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     (self._capacity_remaining_l is None)
                     or (float(self._capacity_remaining_l) <= 0.0)
                     or (not self._capacity_ist_ready)
+                    or recharge_bumped
                 )
             )
             if reset_candidate or recovery_candidate:
@@ -1138,4 +1168,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "detail": detail_bundle,
         }
 
+        # fix24: persist last recharge cycle counter for next poll
+        if cur_cycles_i is not None:
+            self._last_recharge_cycles = cur_cycles_i
         return data
