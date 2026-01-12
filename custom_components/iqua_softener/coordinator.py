@@ -1168,7 +1168,4 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "detail": detail_bundle,
         }
 
-        # fix24: persist last recharge cycle counter for next poll
-        if cur_cycles_i is not None:
-            self._last_recharge_cycles = cur_cycles_i
         return data
