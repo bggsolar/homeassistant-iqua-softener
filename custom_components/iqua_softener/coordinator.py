@@ -453,18 +453,16 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if treated_total_l is not None and (not regen_active) and self._regen_active_prev:
             self._baseline_treated_total_l = treated_total_l
             # fix17: start delta-based tracking from regeneration end
-            self._capacity_ist_ready = True
             # fix24: on regeneration completion, reset remaining treated capacity to full
-            if total_l_now is not None:
+            total_l_now = self._compute_capacity_total_l(kv)
+            if total_l_now is not None and total_l_now > 0:
                 self._capacity_total_l = float(total_l_now)
                 self._capacity_remaining_l = float(total_l_now)
+                self._capacity_ist_ready = True
             else:
                 # if total capacity is unknown, at least clear IST state so it can recover later
                 self._capacity_ist_ready = False
             self._water_total_last_l = treated_total_l
-            total_l_now = self._compute_capacity_total_l(kv)
-            if total_l_now is not None:
-                self._capacity_remaining_l = float(total_l_now)
 
             # Record regeneration end timestamp and history
             now = dt_util.now()
@@ -473,6 +471,22 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self._regen_end_history = self._regen_end_history[-30:]
             await self._async_save_baseline()
             _LOGGER.debug("Set treated-water baseline at regeneration end: %s L (regen_end=%s)", treated_total_l, now)
+
+        # fix24b: If the cloud's regeneration flags are delayed or missing,
+        # use the regeneration counter bump as a hard signal that a regeneration
+        # has completed, and reset capacity/baselines accordingly.
+        if recharge_bumped and treated_total_l is not None and (not regen_active):
+            total_l_now = self._compute_capacity_total_l(kv)
+            if total_l_now is not None and total_l_now > 0:
+                self._baseline_treated_total_l = treated_total_l
+                self._capacity_total_l = float(total_l_now)
+                self._capacity_remaining_l = float(total_l_now)
+                self._capacity_ist_ready = True
+                self._water_total_last_l = treated_total_l
+                _LOGGER.debug(
+                    "Detected regeneration completion via recharge counter bump; reset capacity to full (total=%s L)",
+                    total_l_now,
+                )
 
         self._regen_active_prev = regen_active
 
