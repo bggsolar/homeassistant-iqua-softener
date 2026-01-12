@@ -111,9 +111,8 @@ def _house_total_liters(
     if st.state in ("unknown", "unavailable", "none", ""):
         return None, None, "entity_unavailable"
 
-    try:
-        raw = float(str(st.state).replace(",", "."))
-    except Exception:
+    raw = _to_float(st.state)
+    if raw is None:
         return None, None, "not_numeric"
 
     factor_used: Optional[float] = None
@@ -191,8 +190,8 @@ def _to_float(v: Any) -> Optional[float]:
 
     s = str(v).strip()
 
-    # normalize decimal comma
-    s = s.replace(",", ".")
+    # remove whitespace (incl. non-breaking spaces)
+    s = s.replace("\u00a0", " ").replace(" ", "")
 
     # strip common suffixes/units/words from API/UI
     for token in (
@@ -207,6 +206,21 @@ def _to_float(v: Any) -> Optional[float]:
         s = s.replace(token, "")
 
     s = s.strip()
+
+    # locale-aware normalization:
+    # - German style: 544.910,50 -> 544910.50
+    # - US style:     544,910.50 -> 544910.50
+    if "," in s and "." in s:
+        # whichever appears last is assumed to be the decimal separator
+        if s.rfind(",") > s.rfind("."):
+            # comma decimal, dot thousands
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            # dot decimal, comma thousands
+            s = s.replace(",", "")
+    elif "," in s:
+        # comma decimal
+        s = s.replace(",", ".")
 
     try:
         return float(s)
