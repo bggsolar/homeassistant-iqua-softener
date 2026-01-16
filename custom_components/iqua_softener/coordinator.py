@@ -252,6 +252,11 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # fix24: track recharge counter to detect regeneration completion even if status flags are stale
         self._last_recharge_cycles: Optional[int] = None
 
+        # Rate limit (HTTP 429) backoff state (server-side throttling)
+        self._rl_until: float = 0.0  # epoch seconds until which we should avoid calling throttled endpoints
+        self._rl_backoff_s: float = 0.0  # last computed backoff duration (seconds)
+        self._rl_hits: int = 0  # consecutive 429 hits (for exponential backoff)
+
 
     async def async_load_baseline(self) -> None:
         """Load persisted baseline for treated water counter."""
@@ -345,10 +350,6 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("Failed to save iQua baseline store: %s", err)
 
-        # Rate limit (HTTP 429) backoff state (server-side throttling)
-        self._rl_until: float = 0.0  # epoch seconds until which we should avoid calling throttled endpoints
-        self._rl_backoff_s: float = 0.0  # last computed backoff duration (seconds)
-        self._rl_hits: int = 0  # consecutive 429 hits (for exponential backoff)
     def _compute_capacity_total_l(self, kv: Dict[str, Any]) -> Optional[float]:
         """Compute total treated capacity in liters from grains + hardness."""
         op = kv.get("configuration.operating_capacity_grains")
@@ -409,6 +410,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Remember last seen cycle counter
         if cur_cycles_i is not None:
             self._last_recharge_cycles = cur_cycles_i
+
 
         regen_raw = kv.get("program.regen_time_remaining")
         try:
