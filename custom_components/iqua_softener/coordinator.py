@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import random
 from datetime import timedelta, datetime
 from typing import Any, Dict, Optional, Tuple
 
@@ -344,6 +345,10 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("Failed to save iQua baseline store: %s", err)
 
+        # Rate limit (HTTP 429) backoff state (server-side throttling)
+        self._rl_until: float = 0.0  # epoch seconds until which we should avoid calling throttled endpoints
+        self._rl_backoff_s: float = 0.0  # last computed backoff duration (seconds)
+        self._rl_hits: int = 0  # consecutive 429 hits (for exponential backoff)
     def _compute_capacity_total_l(self, kv: Dict[str, Any]) -> Optional[float]:
         """Compute total treated capacity in liters from grains + hardness."""
         op = kv.get("configuration.operating_capacity_grains")
@@ -977,10 +982,17 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     def _get(self, path: str, *, use_token: bool = True) -> Dict[str, Any]:
         """Perform a GET request.
 
-        The web app calls some bootstrap endpoints where auth handling may differ.
-        To keep our coordinator robust (and to match recorded HAR flows), callers
-        can pass use_token=False to skip adding the bearer token.
+        NOTE: iQua cloud may throttle requests with HTTP 429. We apply a local
+        exponential backoff (with jitter) to avoid hammering the API and to keep
+        the integration stable during outages.
         """
+        # Respect local backoff window (primarily for /live which is most rate-limited)
+        now = time.time()
+        if self._rl_until and now < self._rl_until:
+            raise UpdateFailed(
+                f"GET failed: HTTP 429 (backoff active) for {self._url(path)}"
+            )
+
         sess = self._get_session()
         r = sess.get(
             self._url(path),
@@ -997,11 +1009,38 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 timeout=20,
             )
 
+        if r.status_code == 429:
+            # Compute backoff duration
+            retry_after = None
+            try:
+                ra = r.headers.get("Retry-After")
+                if ra:
+                    retry_after = float(ra)
+            except Exception:
+                retry_after = None
+
+            # Exponential backoff starting at 60s, capped at 15 minutes
+            self._rl_hits = min(self._rl_hits + 1, 10)
+            base = 60.0 * (2 ** (self._rl_hits - 1))
+            backoff = min(900.0, base)
+            if retry_after is not None:
+                backoff = max(backoff, retry_after)
+            # small jitter to desynchronize with other clients
+            jitter = random.uniform(0.0, 10.0)
+            backoff = backoff + jitter
+            self._rl_backoff_s = backoff
+            self._rl_until = time.time() + backoff
+            raise UpdateFailed(f"GET failed: HTTP 429 for {r.url}")
+
         if r.status_code != 200:
+            # reset backoff counter on non-429 errors? keep hits but don't extend window
             raise UpdateFailed(f"GET failed: HTTP {r.status_code} for {r.url}")
 
+        # Success: clear rate-limit state
+        self._rl_hits = 0
+        self._rl_backoff_s = 0.0
+        self._rl_until = 0.0
         return r.json()
-
     def _fetch_web_sequence(self, device_uuid: str) -> dict[str, object]:
         """Fetch additional device info via the same sequence as the web UI.
 
@@ -1048,12 +1087,21 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     def _fetch_debug(self) -> dict[str, object]:
         device_uuid = self._device_uuid
 
-        live = self._get(f"devices/{device_uuid}/live", use_token=True)
+        live: dict[str, object] | None = None
+        try:
+            live = self._get(f"devices/{device_uuid}/live", use_token=True)
+        except UpdateFailed as err:
+            # If the cloud throttles us (HTTP 429), continue with other endpoints.
+            # This keeps sensors stable while we are in backoff.
+            if "HTTP 429" in str(err):
+                _LOGGER.warning("iQua API rate-limited for /live (HTTP 429); continuing with partial data")
+            else:
+                raise
+
         detail = self._fetch_web_sequence(device_uuid)
         debug = self._get(f"devices/{device_uuid}/debug", use_token=True)
 
         return {"debug": debug, "detail": detail, "live": live}
-
     def _merge_detail_into_kv(self, kv: Dict[str, Any], detail: Dict[str, Any]) -> None:
         """Fill missing KV entries from detail-or-summary.
 
