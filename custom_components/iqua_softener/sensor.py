@@ -912,7 +912,16 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
         self._house_daily = house_daily
         self._delta_daily = delta_daily
 
+
     def update_from_data(self, data: Dict[str, Any]) -> None:
+        """Compute effective outlet hardness for today's water usage.
+
+        Daily-baseline guard:
+        - Do NOT treat missing daily volumes as 0 (would falsely yield 0 °dH).
+        - If the daily counters are not ready/available yet, HOLD the last valid value.
+        """
+        prev_val = self._attr_native_value  # may be None on first ever run
+
         # Default attrs
         self._calc_status = "enabled"
         self._calc_reason = "ok"
@@ -921,8 +930,14 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
         if err:
             self._calc_status = "disabled"
             self._calc_reason = err
-            self._attr_native_value = None
-            self._attr_extra_state_attributes = self._base_attrs()
+            # hold-last if we have one
+            self._attr_native_value = prev_val
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "held_value_dh": prev_val,
+            }
             return
 
         # Ensure daily sensors are updated from the same coordinator tick
@@ -931,11 +946,35 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
 
         house_today = _parse_optional_float(self._house_daily.native_value)
         delta_today = _parse_optional_float(self._delta_daily.native_value)
-        if house_today is None or house_today <= 0 or delta_today is None:
+
+        # Guard: missing daily counters must not be interpreted as 0
+        if house_today is None or delta_today is None:
             self._calc_status = "disabled"
             self._calc_reason = "missing_daily_volumes"
-            self._attr_native_value = None
-            self._attr_extra_state_attributes = {**self._base_attrs(), "raw_hardness_dh": raw_h, "softened_hardness_dh": soft_h}
+            self._attr_native_value = prev_val
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "house_today_l": house_today,
+                "delta_today_l": delta_today,
+                "held_value_dh": prev_val,
+            }
+            return
+
+        # Guard: no usage yet today -> hold last valid value (prevents 0 °dH artifacts at day start)
+        if house_today <= 0:
+            self._calc_status = "enabled"
+            self._calc_reason = "no_usage"
+            self._attr_native_value = prev_val
+            self._attr_extra_state_attributes = {
+                **self._base_attrs(),
+                "raw_hardness_dh": raw_h,
+                "softened_hardness_dh": soft_h,
+                "house_today_l": house_today,
+                "delta_today_l": delta_today,
+                "held_value_dh": prev_val,
+            }
             return
 
         roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
@@ -947,8 +986,9 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
             "raw_hardness_dh": raw_h,
             "softened_hardness_dh": soft_h,
             "raw_fraction": _round(roh_frac, 4),
+            "house_today_l": _round(house_today, 1),
+            "delta_today_l": _round(delta_today, 1),
         }
-
 
 
 class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
