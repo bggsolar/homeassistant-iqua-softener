@@ -1090,6 +1090,7 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         device_uuid = self._device_uuid
 
         live: dict[str, object] | None = None
+        live_rate_limited = False
         try:
             live = self._get(f"devices/{device_uuid}/live", use_token=True)
         except UpdateFailed as err:
@@ -1097,11 +1098,23 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # This keeps sensors stable while we are in backoff.
             if "HTTP 429" in str(err):
                 _LOGGER.warning("iQua API rate-limited for /live (HTTP 429); continuing with partial data")
+                live_rate_limited = True
             else:
                 raise
 
         detail = self._fetch_web_sequence(device_uuid)
-        debug = self._get(f"devices/{device_uuid}/debug", use_token=True)
+        debug = None
+        # If /live was rate-limited (HTTP 429), skip /debug as well to avoid cascading failures.
+        if not live_rate_limited:
+            try:
+                debug = self._get(f"devices/{device_uuid}/debug", use_token=True)
+            except UpdateFailed as err:
+                # Respect backoff: if we are rate-limited, keep partial data instead of failing the whole update.
+                if "HTTP 429" in str(err):
+                    _LOGGER.debug("iQua API rate-limited for /debug (HTTP 429); skipping debug during backoff")
+                    debug = None
+                else:
+                    raise
 
         return {"debug": debug, "detail": detail, "live": live}
     def _merge_detail_into_kv(self, kv: Dict[str, Any], detail: Dict[str, Any]) -> None:
