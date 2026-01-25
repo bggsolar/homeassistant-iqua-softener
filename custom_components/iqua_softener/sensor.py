@@ -26,6 +26,8 @@ from .const import (
     CONF_DEVICE_UUID,
     VOLUME_FLOW_RATE_LITERS_PER_MINUTE,
     CONF_HOUSE_WATERMETER_ENTITY,
+    CONF_REGEN_SELF_CONSUMPTION_L,
+    DEFAULT_REGEN_SELF_CONSUMPTION_L,
     CONF_HOUSE_WATERMETER_UNIT_MODE,
     CONF_HOUSE_WATERMETER_FACTOR,
     CONF_RAW_HARDNESS_DH,
@@ -923,10 +925,12 @@ class IquaDailyCounterSensor(IquaDerivedBaseSensor, RestoreEntity):
 class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
     """Compute effective outlet hardness for today's water usage (based on measured daily mixing)."""
 
-    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
+    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor,
+        regen_self_consumption_l: float, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._house_daily = house_daily
         self._delta_daily = delta_daily
+        self._regen_self_consumption_l = float(regen_self_consumption_l)
 
 
     def update_from_data(self, data: Dict[str, Any]) -> None:
@@ -962,6 +966,17 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
 
         house_today = _parse_optional_float(self._house_daily.native_value)
         delta_today = _parse_optional_float(self._delta_daily.native_value)
+
+        # Regeneration self-consumption correction: water used during regeneration is not delivered at taps.
+        # If a regeneration ended today, subtract a configurable volume from the house-today denominator.
+        house_today_raw = house_today
+        try:
+            last_end = getattr(self.coordinator, '_last_regen_end', None)
+            if last_end is not None and hasattr(last_end, 'date') and last_end.date() == dt_util.as_local(dt_util.utcnow()).date():
+                if house_today is not None:
+                    house_today = max(float(house_today) - float(self._regen_self_consumption_l), 0.0)
+        except Exception:
+            pass
 
         # Guard: missing daily counters must not be interpreted as 0
         if house_today is None or delta_today is None:
@@ -1348,6 +1363,17 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
         house_today = _parse_optional_float(self._house_daily.native_value)
         delta_today = _parse_optional_float(self._delta_daily.native_value)
 
+        # Regeneration self-consumption correction: water used during regeneration is not delivered at taps.
+        # If a regeneration ended today, subtract a configurable volume from the house-today denominator.
+        house_today_raw = house_today
+        try:
+            last_end = getattr(self.coordinator, '_last_regen_end', None)
+            if last_end is not None and hasattr(last_end, 'date') and last_end.date() == dt_util.as_local(dt_util.utcnow()).date():
+                if house_today is not None:
+                    house_today = max(float(house_today) - float(self._regen_self_consumption_l), 0.0)
+        except Exception:
+            pass
+
         if house_today is None or house_today <= 0 or delta_today is None:
             # If house meter is missing, _read_house_total_l() has already set the reason.
             if self._calc_reason == "ok":
@@ -1395,6 +1421,17 @@ class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
         house_today = _parse_optional_float(self._house_daily.native_value)
         delta_today = _parse_optional_float(self._delta_daily.native_value)
 
+        # Regeneration self-consumption correction: water used during regeneration is not delivered at taps.
+        # If a regeneration ended today, subtract a configurable volume from the house-today denominator.
+        house_today_raw = house_today
+        try:
+            last_end = getattr(self.coordinator, '_last_regen_end', None)
+            if last_end is not None and hasattr(last_end, 'date') and last_end.date() == dt_util.as_local(dt_util.utcnow()).date():
+                if house_today is not None:
+                    house_today = max(float(house_today) - float(self._regen_self_consumption_l), 0.0)
+        except Exception:
+            pass
+
         if house_today is None or house_today <= 0 or delta_today is None:
             if self._calc_reason == "ok":
                 self._calc_status = "disabled"
@@ -1426,6 +1463,7 @@ async def async_setup_entry(
 
     merged = _get_merged_entry_data(config_entry)
     house_entity_id = str(merged.get(CONF_HOUSE_WATERMETER_ENTITY) or "").strip()
+    regen_self_consumption_l = float(merged.get(CONF_REGEN_SELF_CONSUMPTION_L, DEFAULT_REGEN_SELF_CONSUMPTION_L))
     house_unit_mode = str(merged.get(CONF_HOUSE_WATERMETER_UNIT_MODE) or HOUSE_UNIT_MODE_AUTO)
     house_factor = merged.get(CONF_HOUSE_WATERMETER_FACTOR)
     raw_hardness_dh = merged.get(CONF_RAW_HARDNESS_DH)
@@ -2144,6 +2182,7 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         house_daily=house_daily_l,
         delta_daily=delta_daily_l,
+        regen_self_consumption_l=regen_self_consumption_l,
     )
 
     raw_fraction_daily = IquaRawFractionDailySensor(
@@ -2205,6 +2244,7 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         house_daily=house_daily_l,
         delta_daily=delta_daily_l,
+        regen_self_consumption_l=regen_self_consumption_l,
         ewma_state=ewma_state,
         tau_seconds=EWMA_TAU_SECONDS,
     )

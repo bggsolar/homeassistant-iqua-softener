@@ -8,6 +8,9 @@ CONF_DEVICE_UUID = "device_uuid"
 
 # Optional enrichment / derived calculations
 CONF_HOUSE_WATERMETER_ENTITY = "house_watermeter_entity"
+
+CONF_REGEN_SELF_CONSUMPTION_L = "regen_self_consumption_l"
+DEFAULT_REGEN_SELF_CONSUMPTION_L = 100.0
 CONF_HOUSE_WATERMETER_UNIT_MODE = "house_watermeter_unit_mode"  # auto|m3|l|factor
 CONF_HOUSE_WATERMETER_FACTOR = "house_watermeter_factor"
 

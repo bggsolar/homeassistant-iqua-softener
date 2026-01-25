@@ -16,6 +16,8 @@ from .const import (
     CONF_PASSWORD,
     CONF_DEVICE_UUID,
     CONF_HOUSE_WATERMETER_ENTITY,
+    CONF_REGEN_SELF_CONSUMPTION_L,
+    DEFAULT_REGEN_SELF_CONSUMPTION_L,
     CONF_HOUSE_WATERMETER_UNIT_MODE,
     CONF_HOUSE_WATERMETER_FACTOR,
     HOUSE_UNIT_MODE_AUTO,
@@ -115,6 +117,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Optional enrichment: house watermeter (for delta + hardness calculations)
                 vol.Optional(
                     CONF_HOUSE_WATERMETER_ENTITY,
+    CONF_REGEN_SELF_CONSUMPTION_L,
+    DEFAULT_REGEN_SELF_CONSUMPTION_L,
                     default=defaults.get(CONF_HOUSE_WATERMETER_ENTITY, ""),
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
                 vol.Required(

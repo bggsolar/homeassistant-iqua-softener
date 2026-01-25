@@ -57,5 +57,14 @@
         "name": "{{ value }}"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "regen_self_consumption_l": "Regeneration self-consumption (liters)"
+        }
+      }
+    }
   }
 }

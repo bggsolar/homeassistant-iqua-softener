@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.28
+- Feature: Configurable regeneration self-consumption (liters, default 100) deducted from daily house consumption for mixing/verschnitt and effective hardness.
+
+
 ## 2.4.27.2
 - Improvement: Fallback operating_capacity_grains/hardness_grains from last known values when /debug is skipped (HTTP 429 backoff).
 - Maintenance: Throttle repetitive "missing operating_capacity/hardness" debug logs (max once/hour per device).

@@ -192,5 +192,14 @@
         "name": "Wasserzähler (gesamt)"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "regen_self_consumption_l": "Eigenverbrauch pro Regeneration (Liter)"
+        }
+      }
+    }
   }
 }
