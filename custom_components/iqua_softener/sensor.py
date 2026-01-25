@@ -1,12 +1,10 @@
 from __future__ import annotations
-
 import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 import math
 from typing import Any, Dict, Optional
-
 from homeassistant import config_entries, core
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -20,7 +18,6 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
-
 from .const import (
     DOMAIN,
     CONF_DEVICE_UUID,
@@ -45,13 +42,9 @@ from .const import (
     EWMA_TAU_SECONDS,
 )
 from .coordinator import IquaSoftenerCoordinator
-
 _LOGGER = logging.getLogger(__name__)
-
-
 # Throttle repetitive "missing operating_capacity/hardness" debug logs (esp. during API throttling)
 _MISSING_CAP_LOG_TS: dict[str, float] = {}
-
 def _log_missing_capacity_throttled(device_uuid: str, op_cap, hardness) -> None:
     now = time.time()
     last = _MISSING_CAP_LOG_TS.get(device_uuid, 0.0)
@@ -63,17 +56,13 @@ def _log_missing_capacity_throttled(device_uuid: str, op_cap, hardness) -> None:
         op_cap,
         hardness,
     )
-
 # ---------- Helpers ----------
-
 def _get_merged_entry_data(entry: config_entries.ConfigEntry) -> dict[str, Any]:
     """Merge entry.data + entry.options (options override data)."""
     merged = dict(entry.data)
     if entry.options:
         merged.update(entry.options)
     return merged
-
-
 def _parse_optional_float(v: Any) -> Optional[float]:
     if v is None:
         return None
@@ -86,11 +75,8 @@ def _parse_optional_float(v: Any) -> Optional[float]:
         return float(s.replace(",", "."))
     except Exception:
         return None
-
-
 def _detect_unit_factor(unit: Optional[str]) -> Optional[float]:
     """Detect factor to convert given unit to liters.
-
     Returns:
       1000.0 for m³-like units, 1.0 for liters, None if unknown.
     """
@@ -104,8 +90,6 @@ def _detect_unit_factor(unit: Optional[str]) -> Optional[float]:
     if u in {"l", "ℓ", "liter", "liters", "litre", "litres"}:
         return 1.0
     return None
-
-
 def _house_total_liters(
     hass: core.HomeAssistant,
     *,
@@ -114,25 +98,20 @@ def _house_total_liters(
     factor_opt: Any,
 ) -> tuple[Optional[float], Optional[float], str]:
     """Read house watermeter from HA and convert to liters.
-
     Returns:
       (value_liters, factor_used, reason)
     where reason is "ok" or a short error code.
     """
     if not entity_id:
         return None, None, "missing_entity"
-
     st = hass.states.get(entity_id)
     if st is None:
         return None, None, "entity_not_found"
-
     if st.state in ("unknown", "unavailable", "none", ""):
         return None, None, "entity_unavailable"
-
     raw = _to_float(st.state)
     if raw is None:
         return None, None, "not_numeric"
-
     factor_used: Optional[float] = None
     mode = (unit_mode or HOUSE_UNIT_MODE_AUTO).strip().lower()
     if mode == HOUSE_UNIT_MODE_M3:
@@ -149,25 +128,19 @@ def _house_total_liters(
         factor_used = _detect_unit_factor(unit)
         if factor_used is None:
             return None, None, "unknown_unit"
-
     return raw * factor_used, factor_used, "ok"
-
 def _as_str(v: Any) -> Optional[str]:
     if v is None:
         return None
     s = str(v).strip()
     return s if s else None
-
-
 def _to_datetime(v: Any) -> Any:
     """Parse iQua timestamps to timezone-aware datetime.
-
     Known format from Ease UI: '30/12/2025 21:38' (DD/MM/YYYY HH:MM).
     Returns timezone-aware datetime in UTC for device_class TIMESTAMP.
     """
     if v is None:
         return None
-
     # Already a datetime?
     try:
         from datetime import datetime as _dt
@@ -175,11 +148,9 @@ def _to_datetime(v: Any) -> Any:
             return dt_util.as_utc(dt_util.as_local(v))
     except Exception:
         pass
-
     s = str(v).strip()
     if not s:
         return None
-
     # Try ISO first (sometimes APIs change)
     try:
         dt = dt_util.parse_datetime(s)
@@ -187,7 +158,6 @@ def _to_datetime(v: Any) -> Any:
             return dt_util.as_utc(dt_util.as_local(dt))
     except Exception:
         pass
-
     # DD/MM/YYYY HH:MM (observed)
     for fmt in ("%d/%m/%Y %H:%M", "%d.%m.%Y %H:%M"):
         try:
@@ -197,20 +167,14 @@ def _to_datetime(v: Any) -> Any:
             return dt_util.as_utc(dt)
         except Exception:
             continue
-
     return None
-
-
 def _to_float(v: Any) -> Optional[float]:
     """Parse numbers that might come as '3.6 Days', '3,6 Tage', '76.5%' etc."""
     if v is None:
         return None
-
     s = str(v).strip()
-
     # remove whitespace (incl. non-breaking spaces)
     s = s.replace("\u00a0", " ").replace(" ", "")
-
     # strip common suffixes/units/words from API/UI
     for token in (
         "%",
@@ -222,9 +186,7 @@ def _to_float(v: Any) -> Optional[float]:
         "day",
     ):
         s = s.replace(token, "")
-
     s = s.strip()
-
     # locale-aware normalization:
     # - German style: 544.910,50 -> 544910.50
     # - US style:     544,910.50 -> 544910.50
@@ -239,13 +201,10 @@ def _to_float(v: Any) -> Optional[float]:
     elif "," in s:
         # comma decimal
         s = s.replace(",", ".")
-
     try:
         return float(s)
     except Exception:
         return None
-
-
 def _first_numeric_by_key_fragment(
     kv: dict[str, Any],
     *fragments: str,
@@ -261,9 +220,6 @@ def _first_numeric_by_key_fragment(
             if n is not None:
                 return n
     return None
-
-
-
 def _percent_from_api(raw: Any) -> Optional[float]:
     """Some API values are scaled by 10 (e.g. 765 == 76.5%)."""
     f = _to_float(raw)
@@ -279,20 +235,16 @@ def _percent_from_api(raw: Any) -> Optional[float]:
         # still too high? give up
         return None
     return f
-
-
 def _treated_capacity_total_l(operating_capacity_grains: Any, hardness_grains: Any) -> Optional[float]:
     """Compute total treatable water in liters from capacity (grains) and hardness (grains/gal)."""
     cap = _to_float(operating_capacity_grains)
     hard = _to_float(hardness_grains)
     if cap is None or hard is None or hard <= 0:
         return None
-
     # Many iQua endpoints expose hardness as ppm (mg/L CaCO3). Convert heuristically.
     # 1 gpg ≈ 17.1 ppm.
     if hard > 60:  # values above ~60 are very likely ppm, not grains/gal
         hard = hard / 17.1
-
     gallons = cap / hard
     liters = gallons * 3.785412
     return liters
@@ -303,8 +255,6 @@ def _round(v: Optional[float], ndigits: int) -> Optional[float]:
         return round(float(v), ndigits)
     except Exception:
         return v
-
-
 def _kv_first_value(
     kv: Dict[str, Any],
     *,
@@ -313,7 +263,6 @@ def _kv_first_value(
     contains: tuple[str, ...] = (),
 ) -> Any:
     """Return first non-None value found in kv.
-
     We try, in order:
       1) exact key matches
       2) key endswith any suffix (case-insensitive)
@@ -321,15 +270,12 @@ def _kv_first_value(
     """
     if not isinstance(kv, dict):
         return None
-
     # 1) Exact keys
     for k in exact_keys:
         if k in kv and kv.get(k) is not None:
             return kv.get(k)
-
     if not (suffixes or contains):
         return None
-
     # Prepare lowercase view once
     kv_items = list(kv.items())
     for raw_k, raw_v in kv_items:
@@ -345,12 +291,9 @@ def _kv_first_value(
             if str(sub).lower() in lk:
                 return raw_v
     return None
-
 # ---------- EWMA (Exponential Moving Average) helpers ----------
-
 def _ewma_update(state: dict[str, Any], x: float, now_ts: float, tau_seconds: float) -> float:
     """Continuous-time EWMA update.
-
     state: {'value': float|None, 'ts': float|None}
     x: new sample
     now_ts: current timestamp (seconds)
@@ -372,8 +315,6 @@ def _ewma_update(state: dict[str, Any], x: float, now_ts: float, tau_seconds: fl
     state['value'] = new_val
     state['ts'] = float(now_ts)
     return new_val
-
-
 def _salt_monitor_to_percent(raw: Any) -> Optional[float]:
     """Salt monitor level seems 0..50 where 50 == 100%."""
     f = _to_float(raw)
@@ -381,8 +322,6 @@ def _salt_monitor_to_percent(raw: Any) -> Optional[float]:
         return None
     f = max(0.0, min(50.0, f))
     return (f / 50.0) * 100.0
-
-
 def _parse_iso_datetime(value: Any) -> Optional[datetime]:
     """Parse ISO string into aware datetime."""
     s = _as_str(value)
@@ -397,15 +336,10 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
         return dt
     except Exception:
         return None
-
-
 # ---------- Base classes ----------
-
 class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], ABC):
     """Base sensor using translations (has_entity_name=True)."""
-
     _attr_has_entity_name = True
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -415,24 +349,19 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
         super().__init__(coordinator)
         self.entity_description = description
         self._device_uuid = device_uuid
-
         # stable unique id per device
         self._attr_unique_id = f"{device_uuid}_{description.key}".lower()
-
     @property
     def device_info(self) -> DeviceInfo:
         """Device card in HA: show model, sw_version, and PWA as serial_number."""
         data = self.coordinator.data or {}
         kv = data.get("kv", {}) if isinstance(data, dict) else {}
-
         model = _as_str(kv.get("manufacturing_information.model")) or "Softener"
         sw = _as_str(kv.get("manufacturing_information.base_software_version"))
         pwa = _as_str(kv.get("manufacturing_information.pwa"))
-
         # Device name (avoid UUID + avoid firmware in entity_id slug by using PWA)
         # Example: "iQua Leycosoft Pro 9 (7383865)"
         name = f"iQua {model} ({pwa})" if pwa else f"iQua {model}"
-
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_uuid)},
             name=name,
@@ -442,20 +371,15 @@ class IquaBaseSensor(SensorEntity, CoordinatorEntity[IquaSoftenerCoordinator], A
             serial_number=pwa,
             configuration_url=f"https://app.myiquaapp.com/devices/{self._device_uuid}",
         )
-
     @callback
     def _handle_coordinator_update(self) -> None:
         self.update_from_data(self.coordinator.data or {})
         self.async_write_ha_state()
-
     @abstractmethod
     def update_from_data(self, data: Dict[str, Any]) -> None:
         ...
-
-
 class IquaKVSensor(IquaBaseSensor):
     """Reads a canonical kv key from coordinator.data['kv'][canonical_key]."""
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -470,38 +394,29 @@ class IquaKVSensor(IquaBaseSensor):
         self._k = canonical_kv_key
         self._round_digits = round_digits
         self._transform = transform
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         kv = data.get("kv", {})
         if not isinstance(kv, dict):
             self._attr_native_value = None
             return
-
         raw = kv.get(self._k)
         if raw is None:
             self._attr_native_value = None
             return
-
         # numeric if possible else keep string
         val: Any
         f = _to_float(raw)
         val = f if f is not None else raw
-
         if self._transform is not None:
             try:
                 val = self._transform(val)
             except Exception:
                 pass
-
         if isinstance(val, (int, float)) and self._round_digits is not None:
             val = _round(float(val), self._round_digits)
-
         self._attr_native_value = val
-
-
 class IquaTimestampSensor(IquaBaseSensor):
     """Timestamp sensor: value must be datetime."""
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -515,26 +430,19 @@ class IquaTimestampSensor(IquaBaseSensor):
         self._k = canonical_kv_key
         # Default parser handles both ISO 8601 and iQua formats like '30/12/2025 21:38'
         self._transform = transform or _to_datetime
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         kv = data.get("kv", {})
         if not isinstance(kv, dict):
             self._attr_native_value = None
             return
-
         raw = kv.get(self._k)
         try:
             dt = self._transform(raw)
         except Exception:
             dt = None
-
         self._attr_native_value = dt
-
-
-
 class IquaCalculatedCapacitySensor(IquaBaseSensor):
     """Calculated capacities in liters based on operating capacity and hardness."""
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -549,14 +457,11 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
         self._round_digits = round_digits
         # Initialize value from the first coordinator payload
         self.update_from_data(coordinator.data or {})
-
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         kv = data.get("kv", {})
         if not isinstance(kv, dict):
             self._attr_native_value = None
             return
-
         op_cap_raw = _kv_first_value(
             kv,
             exact_keys=(
@@ -571,7 +476,6 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
             suffixes=("operating_capacity_grains", "operating_capacity"),
             contains=("operating_capacity_grains", "operating_capacity"),
         )
-
         hardness_raw = _kv_first_value(
             kv,
             exact_keys=(
@@ -585,7 +489,6 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
             suffixes=("hardness_grains", "hardness", "hardness_ppm"),
             contains=("hardness_grains", "hardness", "hardness_ppm"),
         )
-
         total_l = _treated_capacity_total_l(op_cap_raw, hardness_raw)
         if total_l is None:
             _LOGGER.debug(
@@ -596,11 +499,9 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
             )
             self._attr_native_value = None
             return
-
         if self._mode == "total":
             # Prefer coordinator-computed value if available (may include additional normalization)
             val = kv.get("calculated.treated_capacity_total_l", total_l)
-
         elif self._mode == "remaining_percent":
             # Prefer continuously updated remaining percent based on treated water counter + persisted baseline.
             pct_val = kv.get("calculated.treated_capacity_remaining_percent")
@@ -643,7 +544,6 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
                         self._attr_native_value = None
                         return
                     val = float(pct)
-
         else:
             # Remaining liters
             # Prefer continuously updated remaining value based on treated water counter + persisted baseline.
@@ -679,22 +579,18 @@ class IquaCalculatedCapacitySensor(IquaBaseSensor):
                     self._attr_native_value = None
                     return
                 val = total_l * (pct / 100.0)
-
         self._attr_native_value = _round(val, self._round_digits)
-
     @callback
     def _handle_coordinator_update(self) -> None:
         """Recompute values whenever the coordinator updates."""
         self.update_from_data(self.coordinator.data or {})
         self.async_write_ha_state()
-
 class IquaUsagePatternSensor(IquaBaseSensor):
     """
     Weekly table row:
       - state: weekly average (Liters)
       - attrs: Sun..Sat floats
     """
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -709,27 +605,23 @@ class IquaUsagePatternSensor(IquaBaseSensor):
         self._table_key = table_key
         self._row_label = row_label
         self._round_digits = round_digits
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         tables = data.get("tables", {})
         if not isinstance(tables, dict):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
-
         table = tables.get(self._table_key)
         if not isinstance(table, dict):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
-
         col_titles = table.get("column_titles", [])
         rows = table.get("rows", [])
         if not isinstance(col_titles, list) or not isinstance(rows, list):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
-
         row = next(
             (r for r in rows if isinstance(r, dict) and r.get("label") == self._row_label),
             None,
@@ -738,16 +630,13 @@ class IquaUsagePatternSensor(IquaBaseSensor):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
-
         values = row.get("values", [])
         if not isinstance(values, list):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
-
         attrs: Dict[str, Any] = {}
         nums: list[float] = []
-
         for i, day in enumerate(col_titles):
             if i >= len(values):
                 break
@@ -757,20 +646,14 @@ class IquaUsagePatternSensor(IquaBaseSensor):
             f = _round(f, self._round_digits)
             attrs[str(day)] = f
             nums.append(f)
-
         self._attr_extra_state_attributes = attrs
         self._attr_native_value = _round(sum(nums) / len(nums), self._round_digits) if nums else None
-
-
 # ---------- Derived calculations (optional) ----------
-
 class IquaDerivedBaseSensor(IquaBaseSensor):
     """Base for sensors that derive values from HA state + iQua data.
-
     These sensors are optional and will return None (-> unavailable) if
     required inputs are not configured or not valid.
     """
-
     def __init__(
         self,
         coordinator: IquaSoftenerCoordinator,
@@ -789,11 +672,9 @@ class IquaDerivedBaseSensor(IquaBaseSensor):
         self._house_factor = house_factor
         self._raw_hardness_opt = raw_hardness_dh
         self._soft_hardness_opt = softened_hardness_dh
-
         self._calc_status: str = "disabled"
         self._calc_reason: str = "missing_inputs"
         self._factor_used: Optional[float] = None
-
     def _read_house_total_l(self) -> Optional[float]:
         v, factor_used, reason = _house_total_liters(
             self.hass,
@@ -807,7 +688,6 @@ class IquaDerivedBaseSensor(IquaBaseSensor):
             self._calc_reason = reason
             return None
         return v
-
     def _read_soft_total_l(self) -> Optional[float]:
         # iQua already reports treated water total in liters
         data = self.coordinator.data or {}
@@ -816,10 +696,8 @@ class IquaDerivedBaseSensor(IquaBaseSensor):
             return None
         v = kv.get("water_usage.treated_water")
         return _to_float(v)
-
     def _read_hardness_inputs(self) -> tuple[Optional[float], Optional[float], Optional[str]]:
         """Read hardness inputs.
-
         - raw hardness is required (°dH)
         - soft water hardness defaults to 0.0 °dH if not configured
         """
@@ -832,7 +710,6 @@ class IquaDerivedBaseSensor(IquaBaseSensor):
         if raw < 0 or soft < 0:
             return None, None, "invalid_hardness"
         return raw, soft, None
-
     def _base_attrs(self) -> dict[str, Any]:
         return {
             "calc_status": self._calc_status,
@@ -841,49 +718,36 @@ class IquaDerivedBaseSensor(IquaBaseSensor):
             "house_unit_mode": self._house_unit_mode,
             "house_factor_used": self._factor_used,
         }
-
-
 class IquaHouseTotalLitersSensor(IquaDerivedBaseSensor):
     """Normalized house watermeter value in liters (total_increasing)."""
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         self._calc_status = "enabled"
         self._calc_reason = "ok"
-
         house_total_l = self._read_house_total_l()
         if house_total_l is None:
             self._attr_native_value = None
             self._attr_extra_state_attributes = self._base_attrs()
             return
-
         self._attr_native_value = _round(house_total_l, 1)
         self._attr_extra_state_attributes = self._base_attrs()
-
-
 class IquaDailyCounterSensor(IquaDerivedBaseSensor, RestoreEntity):
     """Daily consumption based on a total_increasing source.
-
     This does not rely on recorder statistics; it stores the start-of-day total.
     """
-
     _attr_extra_restore_state_attributes = True
-
     def __init__(self, *args, source: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._source = source  # 'house' | 'soft' | 'delta'
         self._start_total: Optional[float] = None
         self._start_date: Optional[str] = None  # ISO date
-
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
         if last and last.attributes:
             self._start_total = _parse_optional_float(last.attributes.get("start_total"))
             self._start_date = last.attributes.get("start_date")
-
     def _today_iso(self) -> str:
         return dt_util.as_local(dt_util.utcnow()).date().isoformat()
-
     def _current_total(self) -> Optional[float]:
         if self._source == "house":
             return self._read_house_total_l()
@@ -896,11 +760,9 @@ class IquaDailyCounterSensor(IquaDerivedBaseSensor, RestoreEntity):
                 return None
             return max(house_total_l - soft_total_l, 0.0)
         return None
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         self._calc_status = "enabled"
         self._calc_reason = "ok"
-
         total = self._current_total()
         if total is None:
             # reason set by _read_house_total_l() if relevant
@@ -910,42 +772,32 @@ class IquaDailyCounterSensor(IquaDerivedBaseSensor, RestoreEntity):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {**self._base_attrs(), "start_total": self._start_total, "start_date": self._start_date}
             return
-
         today = self._today_iso()
         if self._start_date != today or self._start_total is None:
             # new day or first run
             self._start_date = today
             self._start_total = total
-
         daily = max(total - (self._start_total or 0.0), 0.0)
         self._attr_native_value = _round(daily, 1)
         self._attr_extra_state_attributes = {**self._base_attrs(), "start_total": self._start_total, "start_date": self._start_date}
-
-
 class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
     """Compute effective outlet hardness for today's water usage (based on measured daily mixing)."""
-
     def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor,
         regen_self_consumption_l: float, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._house_daily = house_daily
         self._delta_daily = delta_daily
         self._regen_self_consumption_l = float(regen_self_consumption_l)
-
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         """Compute effective outlet hardness for today's water usage.
-
         Daily-baseline guard:
         - Do NOT treat missing daily volumes as 0 (would falsely yield 0 °dH).
         - If the daily counters are not ready/available yet, HOLD the last valid value.
         """
         prev_val = self._attr_native_value  # may be None on first ever run
-
         # Default attrs
         self._calc_status = "enabled"
         self._calc_reason = "ok"
-
         raw_h, soft_h, err = self._read_hardness_inputs()
         if err:
             self._calc_status = "disabled"
@@ -959,14 +811,11 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
                 "held_value_dh": prev_val,
             }
             return
-
         # Ensure daily sensors are updated from the same coordinator tick
         self._house_daily.update_from_data(data)
         self._delta_daily.update_from_data(data)
-
         house_today = _parse_optional_float(self._house_daily.native_value)
         delta_today = _parse_optional_float(self._delta_daily.native_value)
-
         # Regeneration self-consumption correction: water used during regeneration is not delivered at taps.
         # If a regeneration ended today, subtract a configurable volume from the house-today denominator.
         house_today_raw = house_today
@@ -977,7 +826,6 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
                     house_today = max(float(house_today) - float(self._regen_self_consumption_l), 0.0)
         except Exception:
             pass
-
         # Guard: missing daily counters must not be interpreted as 0
         if house_today is None or delta_today is None:
             self._calc_status = "disabled"
@@ -992,7 +840,6 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
                 "held_value_dh": prev_val,
             }
             return
-
         # Guard: no usage yet today -> hold last valid value (prevents 0 °dH artifacts at day start)
         if house_today <= 0:
             self._calc_status = "enabled"
@@ -1007,10 +854,8 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
                 "held_value_dh": prev_val,
             }
             return
-
         roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
         h_mix = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
-
         self._attr_native_value = _round(h_mix, 2)
         self._attr_extra_state_attributes = {
             **self._base_attrs(),
@@ -1020,15 +865,11 @@ class IquaTreatedHardnessDailySensor(IquaDerivedBaseSensor):
             "house_today_l": _round(house_today, 1),
             "delta_today_l": _round(delta_today, 1),
         }
-
-
 class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
     """EWMA-smoothed effective outlet hardness (°dH).
-
     Uses an *interval* mixing ratio based on delta volumes between coordinator polls
     (avoids daily midnight resets) and applies an exponential moving average.
     """
-
     def __init__(
         self,
         *args,
@@ -1043,7 +884,6 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
         self._delta_daily = delta_daily
         self._ewma_state = ewma_state
         self._tau_seconds = float(tau_seconds)
-
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
@@ -1055,22 +895,17 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 self._ewma_state["ts"] = datetime.utcnow().timestamp()
             except Exception:
                 pass
-
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         """Update the EWMA-smoothed effective hardness.
-
         Uses *interval* mixing ratio based on delta volumes between coordinator polls:
         - house_total_l (from HA sensor) and
         - softened_total_l (from iQua controller)
-
         This avoids daily midnight resets and enables a true rolling behavior.
         If inputs are missing or no new water usage occurred, the last valid EWMA value
         is kept (hold-last) instead of resetting to unknown.
         """
         self._calc_status = "enabled"
         self._calc_reason = "ok"
-
         # Read hardness inputs (raw + softened setpoints)
         raw_h, soft_h, err = self._read_hardness_inputs()
         if err:
@@ -1084,11 +919,9 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 "softened_hardness_dh": soft_h,
             }
             return
-
         # Interval totals
         house_total = self._read_house_total_l()
         soft_total = self._read_soft_total_l()
-
         if house_total is None or soft_total is None:
             self._calc_status = "disabled"
             self._calc_reason = "missing_totals"
@@ -1101,10 +934,8 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 "soft_total_l": soft_total,
             }
             return
-
         prev_house = self._ewma_state.get("last_house_total")
         prev_soft = self._ewma_state.get("last_soft_total")
-
         # Initialize interval tracking on first run (or after restart)
         if prev_house is None or prev_soft is None:
             self._ewma_state["last_house_total"] = float(house_total)
@@ -1119,7 +950,6 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 "soft_total_l": float(soft_total),
             }
             return
-
         # Detect counter resets (e.g., daily reset or controller reset) and re-baseline.
         if float(house_total) < float(prev_house) or float(soft_total) < float(prev_soft):
             self._ewma_state["last_house_total"] = float(house_total)
@@ -1134,10 +964,8 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 "soft_total_l": float(soft_total),
             }
             return
-
         delta_house = max(float(house_total) - float(prev_house), 0.0)
         delta_soft = max(float(soft_total) - float(prev_soft), 0.0)
-
         # If we see water usage but the treated-water counter did not advance,
         # we cannot derive a reliable mixing ratio from the interval deltas.
         #
@@ -1146,11 +974,9 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
         # (using the already computed daily "effective hardness" as a fallback).
         if delta_house > 0.0 and delta_soft <= 0.0:
             self._calc_reason = "treated_counter_stale"
-
         # Persist current totals for next interval
         self._ewma_state["last_house_total"] = float(house_total)
         self._ewma_state["last_soft_total"] = float(soft_total)
-
         # ---------------------------------------------------------------------
         # no_usage (hard HOLD)
         # ---------------------------------------------------------------------
@@ -1162,7 +988,6 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
         # may drift up/down without any water flow (pure time artifact).
         if delta_house <= 0.0:
             self._calc_reason = "no_usage"
-
             prev = self._ewma_state.get("value")
             if prev is None:
                 # First run / no restored value yet: use today's effective hardness
@@ -1173,7 +998,6 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 prev = (float(raw_h) * roh_frac_today) + (float(soft_h) * (1.0 - roh_frac_today))
                 self._ewma_state["value"] = float(prev)
                 # Do not set/advance ts here.
-
             self._attr_native_value = _round(float(prev), 2) if prev is not None else None
             self._attr_extra_state_attributes = {
                 **self._base_attrs(),
@@ -1195,19 +1019,15 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
             # Compute today's effective hardness using daily counters (robust across midnight)
             house_today = float(self._house_daily.native_value or 0.0)
             delta_today = float(self._delta_daily.native_value or 0.0)
-
             if house_today > 0.0:
                 roh_frac_today = max(min(delta_today / house_today, 1.0), 0.0)
             else:
                 roh_frac_today = 0.0
-
             h_today = (float(raw_h) * roh_frac_today) + (float(soft_h) * (1.0 - roh_frac_today))
-
             now_ts = datetime.utcnow().timestamp()
             # Re-baseline EWMA to today's effective hardness (prevents drift towards raw hardness)
             self._ewma_state["value"] = float(h_today)
             self._ewma_state["ts"] = float(now_ts)
-
             self._calc_reason = "treated_counter_stale"
             self._attr_native_value = _round(float(h_today), 2)
             self._attr_extra_state_attributes = {
@@ -1226,12 +1046,9 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 "ewma_ts": float(self._ewma_state.get("ts") or now_ts),
             }
             return
-
         delta_raw = max(delta_house - delta_soft, 0.0)
         roh_frac = max(min(delta_raw / delta_house, 1.0), 0.0)
-
         h_eff = (float(raw_h) * roh_frac) + (float(soft_h) * (1.0 - roh_frac))
-
         # ---------------------------------------------------------------------
         # Poison / plausibility guard
         # ---------------------------------------------------------------------
@@ -1255,10 +1072,8 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
                 "held_value_dh": _round(float(prev), 2) if prev is not None else None,
             }
             return
-
         now_ts = datetime.utcnow().timestamp()
         h_smooth = _ewma_update(self._ewma_state, float(h_eff), now_ts, self._tau_seconds)
-
         self._attr_native_value = float(h_smooth)
         self._attr_extra_state_attributes = {
             **self._base_attrs(),
@@ -1272,13 +1087,10 @@ class IquaEffectiveHardnessSmoothedSensor(RestoreEntity, IquaDerivedBaseSensor):
             "tau_seconds": float(self._tau_seconds),
             "ewma_ts": float(self._ewma_state.get("ts") or now_ts),
         }
-
 class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
     """Compute effective sodium concentration (mg/L) based on effective hardness reduction.
-
     Uses the EWMA-smoothed effective hardness when available.
     """
-
     def __init__(
         self,
         *args,
@@ -1293,11 +1105,9 @@ class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
         self._delta_daily = delta_daily
         self._ewma_state = ewma_state
         self._raw_sodium_mg_l = float(raw_sodium_mg_l)
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         self._calc_status = "enabled"
         self._calc_reason = "ok"
-
         raw_h, soft_h, err = self._read_hardness_inputs()
         if err:
             self._calc_status = "disabled"
@@ -1305,7 +1115,6 @@ class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
             self._attr_native_value = None
             self._attr_extra_state_attributes = self._base_attrs()
             return
-
         # Use smoothed hardness if initialized; otherwise compute a sample from today's mixing.
         h_eff_smooth = _parse_optional_float(self._ewma_state.get("value"))
         if h_eff_smooth is None:
@@ -1321,10 +1130,8 @@ class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
                 return
             roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
             h_eff_smooth = (raw_h * roh_frac) + (soft_h * (1.0 - roh_frac))
-
         removed_dh = max(float(raw_h) - float(h_eff_smooth), 0.0)
         na_eff = float(self._raw_sodium_mg_l) + (removed_dh * float(SODIUM_MG_PER_DH))
-
         self._attr_native_value = _round(na_eff, 1)
         self._attr_extra_state_attributes = {
             **self._base_attrs(),
@@ -1335,34 +1142,26 @@ class IquaEffectiveSodiumSensor(IquaDerivedBaseSensor):
             "sodium_mg_per_dh": float(SODIUM_MG_PER_DH),
             "sodium_limit_mg_l": float(SODIUM_LIMIT_MG_L),
         }
-
 class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
     """Compute raw-water fraction (mixing ratio) for today's water usage.
-
     This sensor reports the *share of non-softened (raw) water* in percent
     for the current day, based on:
       raw_liters_today = max(house_today - softened_today, 0)
-
     Unlike treated hardness, this does **not** require hardness inputs and
     remains available even if rest hardness is not set.
     """
-
     def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._house_daily = house_daily
         self._delta_daily = delta_daily
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         self._calc_status = "enabled"
         self._calc_reason = "ok"
-
         # Ensure daily sensors are updated from the same coordinator tick
         self._house_daily.update_from_data(data)
         self._delta_daily.update_from_data(data)
-
         house_today = _parse_optional_float(self._house_daily.native_value)
         delta_today = _parse_optional_float(self._delta_daily.native_value)
-
         # Regeneration self-consumption correction: water used during regeneration is not delivered at taps.
         # If a regeneration ended today, subtract a configurable volume from the house-today denominator.
         house_today_raw = house_today
@@ -1373,7 +1172,6 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
                     house_today = max(float(house_today) - float(self._regen_self_consumption_l), 0.0)
         except Exception:
             pass
-
         if house_today is None or house_today <= 0 or delta_today is None:
             # If house meter is missing, _read_house_total_l() has already set the reason.
             if self._calc_reason == "ok":
@@ -1382,7 +1180,6 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
             self._attr_native_value = None
             self._attr_extra_state_attributes = self._base_attrs()
             return
-
         roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
         self._attr_native_value = _round(roh_frac * 100.0, 1)
         self._attr_extra_state_attributes = {
@@ -1391,36 +1188,25 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
             "house_today_l": _round(house_today, 1),
             "raw_today_l": _round(delta_today, 1),
         }
-
-
 # ---------- Setup ----------
-
-
-
 class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
     """Compute softened-water fraction (share of softened water) for today's usage in percent.
-
     This is simply:
         softened_fraction = 100 - raw_fraction
     and is available whenever daily volumes are available.
     """
-
     def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._house_daily = house_daily
         self._delta_daily = delta_daily
-
     def update_from_data(self, data: Dict[str, Any]) -> None:
         self._calc_status = "enabled"
         self._calc_reason = "ok"
-
         # Ensure daily sensors are updated from the same coordinator tick
         self._house_daily.update_from_data(data)
         self._delta_daily.update_from_data(data)
-
         house_today = _parse_optional_float(self._house_daily.native_value)
         delta_today = _parse_optional_float(self._delta_daily.native_value)
-
         # Regeneration self-consumption correction: water used during regeneration is not delivered at taps.
         # If a regeneration ended today, subtract a configurable volume from the house-today denominator.
         house_today_raw = house_today
@@ -1431,7 +1217,6 @@ class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
                     house_today = max(float(house_today) - float(self._regen_self_consumption_l), 0.0)
         except Exception:
             pass
-
         if house_today is None or house_today <= 0 or delta_today is None:
             if self._calc_reason == "ok":
                 self._calc_status = "disabled"
@@ -1439,14 +1224,10 @@ class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {**self._base_attrs()}
             return
-
         roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
         soft_frac = 1.0 - roh_frac
-
         self._attr_native_value = _round(soft_frac * 100.0, 1)
         self._attr_extra_state_attributes = {**self._base_attrs(), "raw_fraction_percent": _round(roh_frac * 100.0, 1)}
-
-
 async def async_setup_entry(
     hass: core.HomeAssistant,
     config_entry: config_entries.ConfigEntry,
@@ -1460,7 +1241,6 @@ async def async_setup_entry(
         raise RuntimeError('iQua Softener coordinator not initialized')
     coordinator: IquaSoftenerCoordinator = cfg["coordinator"]
     device_uuid: str = cfg[CONF_DEVICE_UUID]
-
     merged = _get_merged_entry_data(config_entry)
     house_entity_id = str(merged.get(CONF_HOUSE_WATERMETER_ENTITY) or "").strip()
     regen_self_consumption_l = float(merged.get(CONF_REGEN_SELF_CONSUMPTION_L, DEFAULT_REGEN_SELF_CONSUMPTION_L))
@@ -1469,16 +1249,13 @@ async def async_setup_entry(
     raw_hardness_dh = merged.get(CONF_RAW_HARDNESS_DH)
     softened_hardness_dh = merged.get(CONF_SOFTENED_HARDNESS_DH)
     raw_sodium_mg_l = merged.get(CONF_RAW_SODIUM_MG_L, DEFAULT_RAW_SODIUM_MG_L)
-
     # Shared EWMA runtime state (in-memory). Smoothed sensor restores its last value on startup.
     entry_runtime = hass.data.setdefault(DOMAIN, {}).setdefault(config_entry.entry_id, {})
     ewma_state = entry_runtime.setdefault("ewma", {}).setdefault("effective_hardness", {"value": None, "ts": None})
-
     # Provide a sensible default for raw hardness (user requested: 22.2 °dH).
     # Rest hardness remains optional; if missing/invalid, treated hardness calculation is disabled.
     if raw_hardness_dh in (None, ""):
         raw_hardness_dh = DEFAULT_RAW_HARDNESS_DH
-
     sensors: list[IquaBaseSensor] = [
         # ================== Customer / Metadata ==================
         IquaTimestampSensor(
@@ -1493,7 +1270,6 @@ async def async_setup_entry(
             "customer.time_message_received",
             transform=_to_datetime,
         ),
-
         # ================== Capacity ==================
         IquaKVSensor(
             coordinator,
@@ -1522,7 +1298,6 @@ async def async_setup_entry(
             "capacity.average_capacity_remaining_at_regen_percent",
             round_digits=1,
         ),
-
         # ================== Water usage ==================
         IquaKVSensor(
             coordinator,
@@ -1605,7 +1380,6 @@ async def async_setup_entry(
             "water_usage.treated_water_left",
             round_digits=1,
         ),
-
         # --- Calculated remaining capacity (liters) ---
         IquaCalculatedCapacitySensor(
             coordinator,
@@ -1645,8 +1419,6 @@ async def async_setup_entry(
             ),
             mode="total",
         ),
-
-
 # ================== Derived (local, persisted) ==================
 IquaKVSensor(
     coordinator,
@@ -1713,7 +1485,6 @@ IquaKVSensor(
             "water_usage.peak_flow",
             round_digits=1,
         ),
-
         # ================== Water usage patterns (table) ==================
         IquaUsagePatternSensor(
             coordinator,
@@ -1748,7 +1519,6 @@ IquaKVSensor(
             row_label="Reserved (Liters)",
             round_digits=1,
         ),
-
         # ================== Salt usage ==================
         IquaKVSensor(
             coordinator,
@@ -1819,7 +1589,6 @@ IquaKVSensor(
             "salt_usage.average_salt_dose_per_recharge",
             round_digits=3,
         ),
-
         # ================== Rock removed ==================
         IquaKVSensor(
             coordinator,
@@ -1860,7 +1629,6 @@ IquaKVSensor(
             "rock_removed.since_regen_rock_removed",
             round_digits=3,
         ),
-
         # ================== Regenerations ==================
         IquaKVSensor(
             coordinator,
@@ -1944,7 +1712,6 @@ IquaKVSensor(
             "regenerations.average_days_between_recharge_days",
             round_digits=1,
         ),
-
         # ================== Power outages ==================
         IquaKVSensor(
             coordinator,
@@ -1997,7 +1764,6 @@ IquaKVSensor(
             ),
             "power_outages.longest_recorded_outage",
         ),
-
         # ================== Functional check ==================
         IquaKVSensor(
             coordinator,
@@ -2029,7 +1795,6 @@ IquaKVSensor(
             ),
             "functional_check.cord_power_supply",
         ),
-
         # ================== Misc ==================
         IquaKVSensor(
             coordinator,
@@ -2061,7 +1826,6 @@ IquaKVSensor(
             ),
             "miscellaneous.lockout_status",
         ),
-
         # ================== Program settings ==================
         IquaKVSensor(
             coordinator,
@@ -2085,7 +1849,6 @@ IquaKVSensor(
             "program.regen_time_remaining",
         ),
     ]
-
     # ----- Optional derived sensors (delta + daily + treated hardness) -----
     # These sensors are always added, but will be unavailable unless inputs are configured.
     house_total_l_sensor = IquaHouseTotalLitersSensor(
@@ -2106,7 +1869,6 @@ IquaKVSensor(
         raw_hardness_dh=raw_hardness_dh,
         softened_hardness_dh=softened_hardness_dh,
     )
-
     house_daily_l = IquaDailyCounterSensor(
         coordinator,
         device_uuid,
@@ -2125,7 +1887,6 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         source="house",
     )
-
     softened_daily_l = IquaDailyCounterSensor(
         coordinator,
         device_uuid,
@@ -2144,7 +1905,6 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         source="soft",
     )
-
     delta_daily_l = IquaDailyCounterSensor(
         coordinator,
         device_uuid,
@@ -2163,7 +1923,6 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         source="delta",
     )
-
     treated_hardness_daily = IquaTreatedHardnessDailySensor(
         coordinator,
         device_uuid,
@@ -2184,7 +1943,6 @@ IquaKVSensor(
         delta_daily=delta_daily_l,
         regen_self_consumption_l=regen_self_consumption_l,
     )
-
     raw_fraction_daily = IquaRawFractionDailySensor(
         coordinator,
         device_uuid,
@@ -2204,7 +1962,6 @@ IquaKVSensor(
         house_daily=house_daily_l,
         delta_daily=delta_daily_l,
     )
-
     softened_fraction_daily = IquaSoftenedFractionDailySensor(
         coordinator,
         device_uuid,
@@ -2224,8 +1981,6 @@ IquaKVSensor(
         house_daily=house_daily_l,
         delta_daily=delta_daily_l,
     )
-
-
     effective_hardness_smoothed = IquaEffectiveHardnessSmoothedSensor(
         coordinator,
         device_uuid,
@@ -2244,11 +1999,9 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         house_daily=house_daily_l,
         delta_daily=delta_daily_l,
-        regen_self_consumption_l=regen_self_consumption_l,
         ewma_state=ewma_state,
         tau_seconds=EWMA_TAU_SECONDS,
     )
-
     effective_sodium = IquaEffectiveSodiumSensor(
         coordinator,
         device_uuid,
@@ -2270,8 +2023,6 @@ IquaKVSensor(
         ewma_state=ewma_state,
         raw_sodium_mg_l=float(raw_sodium_mg_l),
     )
-
-
     sensors.extend(
         [
             house_total_l_sensor,
@@ -2285,5 +2036,4 @@ IquaKVSensor(
             effective_sodium,
         ]
     )
-
     async_add_entities(sensors)

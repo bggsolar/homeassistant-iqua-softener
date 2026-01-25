@@ -119,7 +119,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
 
                 vol.Optional(
-                    CONF_REGEN_SELF_CONSUMPTION_L,
                     default=defaults.get(CONF_REGEN_SELF_CONSUMPTION_L, DEFAULT_REGEN_SELF_CONSUMPTION_L),
                 ): vol.Coerce(float),
                 vol.Required(

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.28.2
+- Fix: Remove regen_self_consumption_l from smoothed hardness sensor (was incorrectly passed to base).
+- Fix: Options flow schema cleanup for regen_self_consumption_l.
+
+
 ## 2.4.28.1
 - Fix: Options/config flow schema for regeneration self-consumption (prevent 500 error in UI).
 
