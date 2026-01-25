@@ -1218,8 +1218,8 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self._login()
 
         payloads = self._fetch_debug()
-
-        data = self._parse_debug_json(payloads.get("debug", {}))
+        debug_payload = payloads.get("debug") or {}
+        data = self._parse_debug_json(debug_payload if isinstance(debug_payload, dict) else {})
         kv = data.get("kv", {})
 
         # Merge /live values into kv. This endpoint tends to update whenever the

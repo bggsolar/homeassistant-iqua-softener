@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.27.1
+- Fix: Handle debug=None when /debug is skipped during 429 backoff (prevent NoneType.get crash).
+
+
 ## 2.4.27
 - Fix: Skip /debug when /live is rate-limited (HTTP 429) to prevent cascading failures; continue with partial data.
 
