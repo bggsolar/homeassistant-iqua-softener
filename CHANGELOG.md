@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.28.1
+- Fix: Options/config flow schema for regeneration self-consumption (prevent 500 error in UI).
+
+
 ## 2.4.28
 - Feature: Configurable regeneration self-consumption (liters, default 100) deducted from daily house consumption for mixing/verschnitt and effective hardness.
 
