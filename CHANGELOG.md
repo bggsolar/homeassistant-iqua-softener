@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.27.2
+- Improvement: Fallback operating_capacity_grains/hardness_grains from last known values when /debug is skipped (HTTP 429 backoff).
+- Maintenance: Throttle repetitive "missing operating_capacity/hardness" debug logs (max once/hour per device).
+
+
 ## 2.4.27.1
 - Fix: Handle debug=None when /debug is skipped during 429 backoff (prevent NoneType.get crash).
 

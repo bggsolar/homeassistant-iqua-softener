@@ -251,6 +251,9 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._last_total_capacity_l: Optional[float] = None
         # fix24: track recharge counter to detect regeneration completion even if status flags are stale
         self._last_recharge_cycles: Optional[int] = None
+        # Persist last known config values used for capacity calculations (fallback during API throttling)
+        self._last_operating_capacity_grains: Optional[float] = None
+        self._last_hardness_grains: Optional[float] = None
 
         # Rate limit (HTTP 429) backoff state (server-side throttling)
         self._rl_until: float = 0.0  # epoch seconds until which we should avoid calling throttled endpoints
@@ -1238,6 +1241,25 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 part = detail_bundle.get(k)
                 if isinstance(part, dict):
                     self._merge_detail_into_kv(kv, part)
+
+
+        # Fallback: if /debug was skipped (e.g., HTTP 429), reuse last known op_cap/hardness for capacity calculations.
+        op_now = kv.get("configuration.operating_capacity_grains")
+        hg_now = kv.get("program.hardness_grains")
+        try:
+            if op_now is not None:
+                self._last_operating_capacity_grains = float(op_now)
+        except Exception:
+            pass
+        try:
+            if hg_now is not None:
+                self._last_hardness_grains = float(hg_now)
+        except Exception:
+            pass
+        if kv.get("configuration.operating_capacity_grains") is None and self._last_operating_capacity_grains is not None:
+            kv["configuration.operating_capacity_grains"] = self._last_operating_capacity_grains
+        if kv.get("program.hardness_grains") is None and self._last_hardness_grains is not None:
+            kv["program.hardness_grains"] = self._last_hardness_grains
 
         # Keep raw payloads around for troubleshooting / future sensors
         data["raw"] = {

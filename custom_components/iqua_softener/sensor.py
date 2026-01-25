@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 import math
@@ -45,6 +46,21 @@ from .coordinator import IquaSoftenerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# Throttle repetitive "missing operating_capacity/hardness" debug logs (esp. during API throttling)
+_MISSING_CAP_LOG_TS: dict[str, float] = {}
+
+def _log_missing_capacity_throttled(device_uuid: str, op_cap, hardness) -> None:
+    now = time.time()
+    last = _MISSING_CAP_LOG_TS.get(device_uuid, 0.0)
+    if now - last < 3600:
+        return
+    _MISSING_CAP_LOG_TS[device_uuid] = now
+    _LOGGER.debug(
+        "Calculated capacity missing operating_capacity_grains/hardness (throttled): op_cap=%s hardness=%s",
+        op_cap,
+        hardness,
+    )
 
 # ---------- Helpers ----------
 
