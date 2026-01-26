@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.28.4
+- Fix: Import regen_self_consumption_l constants in config_flow (prevent NameError in options flow).
+
+
 ## 2.4.28.3
 - Fix: Options flow schema for regen_self_consumption_l (missing key caused 500 error).
 
