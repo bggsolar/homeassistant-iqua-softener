@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.28.5
+- Improvement: Network/DNS backoff to reduce errors during internet outages (skip /live and /debug while backoff active; continue with partial data).
+
+
 ## 2.4.28.4
 - Fix: Import regen_self_consumption_l constants in config_flow (prevent NameError in options flow).
 

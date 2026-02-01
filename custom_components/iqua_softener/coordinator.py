@@ -257,6 +257,10 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Rate limit (HTTP 429) backoff state (server-side throttling)
         self._rl_until: float = 0.0  # epoch seconds until which we should avoid calling throttled endpoints
+        # Network backoff (DNS/connection drops) to avoid hammering API during outages
+        self._net_until: float = 0.0
+        self._net_backoff_s: float = 30.0
+        self._net_warned_at: float = 0.0
         self._rl_backoff_s: float = 0.0  # last computed backoff duration (seconds)
         self._rl_hits: int = 0  # consecutive 429 hits (for exponential backoff)
 
@@ -1094,6 +1098,15 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         live: dict[str, object] | None = None
         live_rate_limited = False
+        net_backoff_active = (getattr(self, '_net_until', 0.0) or 0.0) > time.time()
+        if net_backoff_active:
+            now_ts = time.time()
+            if now_ts - float(getattr(self, '_net_warned_at', 0.0)) > 600.0:
+                _LOGGER.warning("Network backoff active; skipping /live and /debug (continuing with partial data)")
+                self._net_warned_at = now_ts
+            detail = self._fetch_web_sequence(device_uuid)
+            return {"debug": None, "detail": detail, "live": None}
+
         try:
             live = self._get(f"devices/{device_uuid}/live", use_token=True)
         except UpdateFailed as err:
@@ -1211,6 +1224,11 @@ class IquaSoftenerCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except UpdateFailed:
             raise
         except requests.exceptions.RequestException as err:
+            # Network/DNS hiccup: apply backoff to avoid repeated failing requests
+            now_ts = time.time()
+            if now_ts >= getattr(self, '_net_until', 0.0):
+                self._net_until = now_ts + float(getattr(self, '_net_backoff_s', 30.0))
+                self._net_backoff_s = min(float(getattr(self, '_net_backoff_s', 30.0)) * 2.0, 900.0)
             raise UpdateFailed(f"Request error: {err}") from err
         except Exception as err:
             raise UpdateFailed(f"Unexpected error: {type(err).__name__}: {err}") from err
