@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.28.6
+- Fix: Pass and initialize regen_self_consumption_l for raw/softened daily fraction sensors.
+- Change: Default raw water hardness set to 8.0 °dH.
+- Change: Default raw sodium set to 80.0 mg/L.
+
+
 ## 2.4.28.5
 - Improvement: Network/DNS backoff to reduce errors during internet outages (skip /live and /debug while backoff active; continue with partial data).
 

@@ -19,7 +19,7 @@ CONF_SOFTENED_HARDNESS_DH = "softened_hardness_dh"
 
 # Default raw water hardness (°dH) used for the optional treated hardness calculation.
 # User requested default: 22.2 °dH
-DEFAULT_RAW_HARDNESS_DH = 22.2
+DEFAULT_RAW_HARDNESS_DH = 8.0
 DEFAULT_SOFTENED_HARDNESS_DH = 0.0  # assumed soft water hardness (°dH) if not specified
 
 HOUSE_UNIT_MODE_AUTO = "auto"
@@ -32,7 +32,7 @@ VOLUME_FLOW_RATE_LITERS_PER_MINUTE = "L/min"
 
 # Sodium calculation (LEYCOsoft PRO): sodium increase per removed hardness
 CONF_RAW_SODIUM_MG_L = "raw_sodium_mg_l"
-DEFAULT_RAW_SODIUM_MG_L = 69.2
+DEFAULT_RAW_SODIUM_MG_L = 80.0
 SODIUM_MG_PER_DH = 8.0  # +8 mg/L sodium per 1 °dH hardness reduction (LEYCO service guide)
 SODIUM_LIMIT_MG_L = 200.0  # German drinking water ordinance limit for sodium (mg/L)
 

@@ -1150,10 +1150,11 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
     Unlike treated hardness, this does **not** require hardness inputs and
     remains available even if rest hardness is not set.
     """
-    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
+    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, regen_self_consumption_l: float, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._house_daily = house_daily
         self._delta_daily = delta_daily
+        self._regen_self_consumption_l = float(regen_self_consumption_l)
     def update_from_data(self, data: Dict[str, Any]) -> None:
         self._calc_status = "enabled"
         self._calc_reason = "ok"
@@ -1186,6 +1187,9 @@ class IquaRawFractionDailySensor(IquaDerivedBaseSensor):
             **self._base_attrs(),
             "raw_fraction": _round(roh_frac, 4),
             "house_today_l": _round(house_today, 1),
+            "house_today_raw_l": _round(house_today_raw, 1) if house_today_raw is not None else None,
+            "house_today_corrected_l": _round(house_today, 1) if house_today is not None else None,
+            "regen_self_consumption_l": _round(float(self._regen_self_consumption_l), 1),
             "raw_today_l": _round(delta_today, 1),
         }
 # ---------- Setup ----------
@@ -1195,10 +1199,11 @@ class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
         softened_fraction = 100 - raw_fraction
     and is available whenever daily volumes are available.
     """
-    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, **kwargs) -> None:
+    def __init__(self, *args, house_daily: IquaDailyCounterSensor, delta_daily: IquaDailyCounterSensor, regen_self_consumption_l: float, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._house_daily = house_daily
         self._delta_daily = delta_daily
+        self._regen_self_consumption_l = float(regen_self_consumption_l)
     def update_from_data(self, data: Dict[str, Any]) -> None:
         self._calc_status = "enabled"
         self._calc_reason = "ok"
@@ -1227,7 +1232,14 @@ class IquaSoftenedFractionDailySensor(IquaDerivedBaseSensor):
         roh_frac = max(min(delta_today / house_today, 1.0), 0.0)
         soft_frac = 1.0 - roh_frac
         self._attr_native_value = _round(soft_frac * 100.0, 1)
-        self._attr_extra_state_attributes = {**self._base_attrs(), "raw_fraction_percent": _round(roh_frac * 100.0, 1)}
+        self._attr_extra_state_attributes = {
+            **self._base_attrs(),
+            "raw_fraction_percent": _round(roh_frac * 100.0, 1),
+            "softened_fraction": _round(soft_frac, 4),
+            "house_today_raw_l": _round(house_today_raw, 1) if house_today_raw is not None else None,
+            "house_today_corrected_l": _round(house_today, 1) if house_today is not None else None,
+            "regen_self_consumption_l": _round(float(self._regen_self_consumption_l), 1),
+        }
 async def async_setup_entry(
     hass: core.HomeAssistant,
     config_entry: config_entries.ConfigEntry,
@@ -1961,6 +1973,7 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         house_daily=house_daily_l,
         delta_daily=delta_daily_l,
+        regen_self_consumption_l=regen_self_consumption_l,
     )
     softened_fraction_daily = IquaSoftenedFractionDailySensor(
         coordinator,
@@ -1980,6 +1993,7 @@ IquaKVSensor(
         softened_hardness_dh=softened_hardness_dh,
         house_daily=house_daily_l,
         delta_daily=delta_daily_l,
+        regen_self_consumption_l=regen_self_consumption_l,
     )
     effective_hardness_smoothed = IquaEffectiveHardnessSmoothedSensor(
         coordinator,
